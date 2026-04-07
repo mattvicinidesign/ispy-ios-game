@@ -27,6 +27,10 @@ final class GameScene: SKScene {
     private let findableRadius: CGFloat = 22
     private let tapSlop: CGFloat = 44
     private var hudLabel: SKLabelNode?
+    private let uiLayer = SKNode()
+    private var slotsContainer = SKNode()
+    private var itemSlots: [SKShapeNode] = []
+    private var backButton: SKShapeNode?
 
     private let items: [(id: String, pos: CGPoint)] = [
         ("apple", CGPoint(x: -600, y:  300)),
@@ -47,11 +51,18 @@ final class GameScene: SKScene {
         backgroundColor = GameTokens.Colors.background
         scaleMode = .resizeFill
 
+        let music = SKAudioNode(fileNamed: "Tech Ambient Vapor.mp3")
+        music.autoplayLooped = true
+        addChild(music)
+
         setupCamera()
+        setupBackground()
         addWorldDebugGrid()
         spawnFindables()
         addTitle()
+        setupBottomBarUI()
         setupHUD()
+        setupBackButton()
         updateHUD()
         clampCamera()
         addPinchGesture(to: view)
@@ -67,8 +78,11 @@ final class GameScene: SKScene {
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
 
-        // Keep HUD pinned to top-left of the screen relative to the camera
-        hudLabel?.position = hudAnchorPosition()
+        layoutBackground()
+        layoutBottomBarUI()
+        layoutBackButton()
+
+        layoutHUDInBottomBar()
         clampCamera()
     }
 
@@ -79,6 +93,30 @@ final class GameScene: SKScene {
         addChild(cameraNode)
         cameraNode.position = .zero
         cameraNode.setScale(zoomScale)
+    }
+
+    private func setupBackground() {
+        childNode(withName: "sceneBackground")?.removeFromParent()
+
+        let background = SKSpriteNode(imageNamed: "BackgroundSetup")
+        background.name = "sceneBackground"
+        background.position = .zero
+        background.zPosition = -1
+        addChild(background)
+
+        layoutBackground()
+    }
+
+    private func layoutBackground() {
+        guard let background = childNode(withName: "sceneBackground") as? SKSpriteNode else { return }
+
+        let textureSize = background.texture?.size() ?? .zero
+        guard textureSize.width > 0, textureSize.height > 0 else { return }
+
+        let scale = max(size.width / textureSize.width, size.height / textureSize.height)
+        let finalScale = scale * 1.8
+        background.size = CGSize(width: textureSize.width * finalScale, height: textureSize.height * finalScale)
+        background.position = .zero
     }
 
     private func spawnFindables() {
@@ -109,19 +147,121 @@ final class GameScene: SKScene {
         label.fontName = GameTokens.Typography.titleFont
         label.fontSize = 18
         label.fontColor = GameTokens.Colors.textPrimary
-        label.horizontalAlignmentMode = .left
-        label.verticalAlignmentMode = .top
+        label.horizontalAlignmentMode = .center
+        label.verticalAlignmentMode = .center
         label.zPosition = 999
-        label.position = hudAnchorPosition()
 
-        cameraNode.addChild(label)
+        uiLayer.addChild(label)
         hudLabel = label
+        layoutHUDInBottomBar()
     }
 
     private func hudAnchorPosition() -> CGPoint {
         CGPoint(
             x: -size.width / 2 + 24,
             y:  size.height / 2 - 24
+        )
+    }
+
+    private func setupBottomBarUI() {
+        uiLayer.removeFromParent()
+        uiLayer.zPosition = 1000
+        cameraNode.addChild(uiLayer)
+
+        uiLayer.childNode(withName: "bottomBar")?.removeFromParent()
+        slotsContainer.removeFromParent()
+        slotsContainer = SKNode()
+        slotsContainer.name = "slotsContainer"
+        itemSlots.removeAll()
+
+        let barHeight: CGFloat = 100
+        let horizontalInset: CGFloat = 24
+        let safeBottomPadding: CGFloat = 26
+        let barWidth = max(360, size.width - horizontalInset * 2)
+        let bar = SKShapeNode(
+            rectOf: CGSize(width: barWidth, height: barHeight),
+            cornerRadius: 18
+        )
+        bar.name = "bottomBar"
+        bar.fillColor = .black.withAlphaComponent(0.45)
+        bar.strokeColor = .white.withAlphaComponent(0.20)
+        bar.lineWidth = 2
+        bar.position = CGPoint(x: 0, y: -size.height / 2 + safeBottomPadding + barHeight / 2)
+        bar.zPosition = 1000
+        uiLayer.addChild(bar)
+
+        slotsContainer.position = bar.position
+        slotsContainer.zPosition = 1001
+        uiLayer.addChild(slotsContainer)
+
+        let slotCount = 10
+        let slotSize: CGFloat = 56
+        let spacing: CGFloat = 12
+        let totalWidth = (CGFloat(slotCount) * slotSize) + (CGFloat(slotCount - 1) * spacing)
+        let startX = -totalWidth / 2 + slotSize / 2
+
+        for index in 0..<slotCount {
+            let slot = SKShapeNode(rectOf: CGSize(width: slotSize, height: slotSize), cornerRadius: 10)
+            slot.fillColor = .white.withAlphaComponent(0.06)
+            slot.strokeColor = .white.withAlphaComponent(0.45)
+            slot.lineWidth = 2
+            slot.position = CGPoint(x: startX + CGFloat(index) * (slotSize + spacing), y: 0)
+            slot.zPosition = 0
+            slotsContainer.addChild(slot)
+            itemSlots.append(slot)
+        }
+    }
+
+    private func layoutBottomBarUI() {
+        guard
+            let bar = uiLayer.childNode(withName: "bottomBar") as? SKShapeNode
+        else { return }
+
+        let barHeight: CGFloat = 100
+        let safeBottomPadding: CGFloat = 26
+        bar.position = CGPoint(x: 0, y: -size.height / 2 + safeBottomPadding + barHeight / 2)
+        slotsContainer.position = bar.position
+        layoutHUDInBottomBar()
+    }
+
+    private func layoutHUDInBottomBar() {
+        guard
+            let label = hudLabel,
+            let bar = uiLayer.childNode(withName: "bottomBar")
+        else { return }
+        label.position = CGPoint(x: bar.position.x, y: bar.position.y)
+    }
+
+    private func setupBackButton() {
+        backButton?.removeFromParent()
+
+        let button = SKShapeNode(rectOf: CGSize(width: 104, height: 44), cornerRadius: 12)
+        button.name = "backButton"
+        button.fillColor = .black.withAlphaComponent(0.45)
+        button.strokeColor = .white.withAlphaComponent(0.35)
+        button.lineWidth = 2
+        button.zPosition = 1002
+
+        let label = SKLabelNode(text: "Back")
+        label.fontName = GameTokens.Typography.titleFont
+        label.fontSize = 20
+        label.fontColor = .white
+        label.verticalAlignmentMode = .center
+        label.zPosition = 1003
+        button.addChild(label)
+
+        uiLayer.addChild(button)
+        backButton = button
+        layoutBackButton()
+    }
+
+    private func layoutBackButton() {
+        guard let button = backButton else { return }
+        let topPadding: CGFloat = 24
+        let leftPadding: CGFloat = 24
+        button.position = CGPoint(
+            x: -size.width / 2 + leftPadding + 52,
+            y: size.height / 2 - topPadding - 22
         )
     }
 
@@ -133,6 +273,25 @@ final class GameScene: SKScene {
             foundCount += 1
         }
         hudLabel?.text = "Found \(foundCount)/\(totalFindables)"
+    }
+
+    private func showPlusOne(at position: CGPoint) {
+        let label = SKLabelNode(text: "+1")
+        label.fontName = GameTokens.Typography.titleFont
+        label.fontSize = 24
+        label.fontColor = .systemGreen
+        label.position = position
+        label.zPosition = 20
+        addChild(label)
+
+        label.run(.sequence([
+            .group([
+                .moveBy(x: 0, y: 30, duration: 0.6),
+                .fadeOut(withDuration: 0.6),
+                .scale(to: 1.1, duration: 0.12)
+            ]),
+            .removeFromParent()
+        ]))
     }
 
     /// Returns true if we found something (and marked it as found).
@@ -181,6 +340,7 @@ final class GameScene: SKScene {
             .scale(to: 1.0, duration: 0.12)
         ]))
 
+        showPlusOne(at: hit.node.position)
         updateHUD()
         return true
     }
@@ -247,6 +407,7 @@ final class GameScene: SKScene {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard !isPinching else { return }
+        run(SKAction.playSoundFileNamed("uiTap.mp3", waitForCompletion: false))
         touchStartPos = touches.first?.location(in: self)
         lastTouchPosition = touchStartPos
         isDragging = false
@@ -285,6 +446,18 @@ final class GameScene: SKScene {
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard !isPinching else { return }
         guard let touch = touches.first else { return }
+
+        if let button = backButton {
+            let uiPoint = touch.location(in: uiLayer)
+            if button.contains(uiPoint) {
+                let menu = MenuScene(size: size)
+                menu.scaleMode = .resizeFill
+                let transition = SKTransition.fade(withDuration: 0.3)
+                view?.presentScene(menu, transition: transition)
+                resetTouchState()
+                return
+            }
+        }
 
         if isDragging {
             resetTouchState()

@@ -8,8 +8,8 @@ struct ContentView: View {
             .ignoresSafeArea()
     }
 
-    private func makeScene() -> GameScene {
-        let scene = GameScene()
+    private func makeScene() -> MenuScene {
+        let scene = MenuScene()
         scene.scaleMode = .resizeFill
         return scene
     }
