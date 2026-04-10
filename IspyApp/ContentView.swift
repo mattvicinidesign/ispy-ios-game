@@ -17,6 +17,7 @@ final class GameState {
     var levelName = ""
     var clues: [String] = []
     var items: [FindableItem] = []
+    var settingsOpen = false
 }
 
 enum ActiveScreen {
@@ -71,28 +72,44 @@ private struct MenuOverlay: View {
     let state: GameState
 
     var body: some View {
-        VStack(spacing: 40) {
-            Text("I Spy")
-                .font(.custom("AvenirNext-Bold", size: 52))
-                .foregroundStyle(.white)
-
-            Button {
-                state.activeScreen = .level
-            } label: {
-                Text("Play Level 1")
-                    .font(.custom("AvenirNext-Bold", size: 34))
+        ZStack {
+            VStack(spacing: 40) {
+                Text("I Spy")
+                    .font(.custom("AvenirNext-Bold", size: 52))
                     .foregroundStyle(.white)
-                    .frame(width: 320, height: 110)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18)
-                            .fill(Color(white: 0.18))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 18)
-                                    .strokeBorder(.white.opacity(0.5), lineWidth: 3)
-                            )
-                    )
+
+                Button {
+                    state.activeScreen = .level
+                } label: {
+                    Text("Play Level 1")
+                        .font(.custom("AvenirNext-Bold", size: 34))
+                        .foregroundStyle(.white)
+                        .frame(width: 320, height: 110)
+                        .background(
+                            RoundedRectangle(cornerRadius: 18)
+                                .fill(Color(white: 0.18))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 18)
+                                        .strokeBorder(.white.opacity(0.5), lineWidth: 3)
+                                )
+                        )
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+
+            VStack {
+                HStack {
+                    Spacer()
+                    SettingsButton(state: state)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                Spacer()
+            }
+
+            if state.settingsOpen {
+                SettingsSheet(state: state)
+            }
         }
     }
 }
@@ -113,6 +130,10 @@ private struct LevelOverlay: View {
             if state.isComplete {
                 winOverlay
             }
+
+            if state.settingsOpen {
+                SettingsSheet(state: state)
+            }
         }
     }
 
@@ -129,6 +150,7 @@ private struct LevelOverlay: View {
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
             }
             Spacer()
+            SettingsButton(state: state)
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
@@ -180,6 +202,71 @@ private struct LevelOverlay: View {
                 .buttonStyle(.plain)
                 .padding(.top, 20)
             }
+        }
+    }
+}
+
+// MARK: - Settings button (reusable across all screens)
+
+private struct SettingsButton: View {
+    let state: GameState
+
+    var body: some View {
+        Button {
+            state.settingsOpen = true
+        } label: {
+            Image(systemName: "gearshape.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(.white)
+                .padding(10)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Settings sheet (placeholder)
+
+private struct SettingsSheet: View {
+    let state: GameState
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.6)
+                .ignoresSafeArea()
+
+            VStack(spacing: 24) {
+                Text("Settings")
+                    .font(.custom("AvenirNext-Bold", size: 28))
+                    .foregroundStyle(.white)
+
+                Text("Coming soon")
+                    .font(.custom("AvenirNext-Regular", size: 17))
+                    .foregroundStyle(Color(white: 0.7))
+
+                Button {
+                    state.settingsOpen = false
+                } label: {
+                    Text("Close")
+                        .font(.custom("AvenirNext-DemiBold", size: 18))
+                        .foregroundStyle(.white)
+                        .frame(width: 180, height: 48)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(Color(white: 0.22))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .strokeBorder(.white.opacity(0.45), lineWidth: 2)
+                                )
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(40)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color(white: 0.12))
+            )
         }
     }
 }
