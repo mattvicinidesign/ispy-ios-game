@@ -1,6 +1,7 @@
 import SwiftUI
 import SpriteKit
 
+/// Root view: `SpriteView` hosts SpriteKit. Initial scene is `MenuScene` (see `docs/ARCHITECTURE.md`).
 struct ContentView: View {
 
     var body: some View {

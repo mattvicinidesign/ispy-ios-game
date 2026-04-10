@@ -1,11 +1,12 @@
 import SpriteKit
 
+/// Title screen; center-anchored. “Play Level 1” presents `FirstScene`.
 final class MenuScene: SKScene {
 
     private var playButton: SKShapeNode?
 
     override func didMove(to view: SKView) {
-        self.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        anchorPoint = CGPoint(x: 0.5, y: 0.5)
         backgroundColor = SKColor(white: 0.08, alpha: 1.0)
         scaleMode = .resizeFill
 
@@ -53,10 +54,13 @@ final class MenuScene: SKScene {
         guard let touch = touches.first, let button = playButton else { return }
         let location = touch.location(in: self)
         guard button.contains(location) else { return }
+        startGame()
+    }
 
-        let next = GameScene(size: size)
-        next.scaleMode = .resizeFill
-        let transition = SKTransition.fade(withDuration: 0.3)
-        view?.presentScene(next, transition: transition)
+    func startGame() {
+        let scene = FirstScene(size: size)
+        scene.scaleMode = .resizeFill
+        view?.presentScene(scene, transition: SKTransition.fade(withDuration: 0.3))
     }
 }
+
