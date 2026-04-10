@@ -6,9 +6,8 @@ private extension CGFloat {
     }
 }
 
-// MARK: - Level 1 layout (tune `nRect` after locking final `scene_01` art)
+// MARK: - Level 1 data
 
-/// Normalized hit box: origin **bottom-left** of the image, 0…1 in each axis (matches math below).
 private struct Level1Target {
     let clue: String
     let nRect: CGRect
@@ -34,7 +33,7 @@ private let level1Targets: [Level1Target] = [
     ),
 ]
 
-// MARK: - Scene
+// MARK: - Scene (gameplay rendering only — all UI is SwiftUI)
 
 final class FirstScene: SKScene {
 
@@ -50,31 +49,29 @@ final class FirstScene: SKScene {
     private let minZoom: CGFloat = 1
     private let maxZoom: CGFloat = 4
 
-    private var hudBar: SKShapeNode!
-    private var clueLabels: [SKLabelNode] = []
-    private var titleLabel: SKLabelNode!
+    private let gameState: GameState
 
-    private var foundFlags: [Bool] = []
-    private var isComplete = false
+    init(gameState: GameState) {
+        self.gameState = gameState
+        super.init(size: .zero)
+    }
 
-    private var winOverlay: SKNode?
-    private var winDismissButton: SKShapeNode?
-
-    private var gameplayHudTop: CGFloat = 0
-
-    /// Called by SwiftUI to navigate back; set before presenting the scene.
-    var onRequestMenu: (() -> Void)?
+    @available(*, unavailable)
+    required init?(coder aDecoder: NSCoder) { fatalError() }
 
     // MARK: Lifecycle
 
     override func didMove(to view: SKView) {
         backgroundColor = .black
         anchorPoint = .zero
-        foundFlags = Array(repeating: false, count: level1Targets.count)
+
+        gameState.levelName = level1Name
+        gameState.clues = level1Targets.map(\.clue)
+        gameState.foundFlags = Array(repeating: false, count: level1Targets.count)
+        gameState.isComplete = false
 
         setupBackground()
         addChild(worldNode)
-        setupHUD()
         layoutForSize()
         attachGestures(to: view)
     }
@@ -89,7 +86,7 @@ final class FirstScene: SKScene {
         layoutForSize()
     }
 
-    // MARK: Setup
+    // MARK: Background
 
     private func setupBackground() {
         let bg = SKSpriteNode(imageNamed: "scene_01")
@@ -113,6 +110,8 @@ final class FirstScene: SKScene {
         worldNode.addChild(bg)
         backgroundNode = bg
     }
+
+    // MARK: Gestures
 
     private func attachGestures(to view: SKView) {
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
@@ -145,7 +144,7 @@ final class FirstScene: SKScene {
     }
 
     @objc private func handlePinch(_ gr: UIPinchGestureRecognizer) {
-        guard !isComplete, let view else { return }
+        guard !gameState.isComplete, let view else { return }
 
         switch gr.state {
         case .began:
@@ -164,7 +163,7 @@ final class FirstScene: SKScene {
     }
 
     @objc private func handlePan(_ gr: UIPanGestureRecognizer) {
-        guard !isComplete, let view else { return }
+        guard !gameState.isComplete, let view else { return }
 
         let t = gr.translation(in: view)
         if gr.state == .changed {
@@ -179,6 +178,8 @@ final class FirstScene: SKScene {
             gr.setTranslation(.zero, in: view)
         }
     }
+
+    // MARK: Zoom / clamp
 
     private func applyZoom(_ newScale: CGFloat, fixingScenePoint anchorScene: CGPoint) {
         let oldScale = zoomScale
@@ -213,39 +214,7 @@ final class FirstScene: SKScene {
         worldNode.position = CGPoint(x: x, y: y)
     }
 
-    private func setupHUD() {
-        let bar = SKShapeNode()
-        bar.fillColor = SKColor(white: 0.05, alpha: 0.82)
-        bar.strokeColor = .clear
-        bar.zPosition = 50
-        bar.name = "hud"
-        addChild(bar)
-        hudBar = bar
-
-        let t = SKLabelNode(text: level1Name.uppercased())
-        t.fontName = "AvenirNext-DemiBold"
-        t.fontSize = 13
-        t.fontColor = SKColor(white: 0.75, alpha: 1)
-        t.horizontalAlignmentMode = .center
-        t.verticalAlignmentMode = .center
-        t.zPosition = 51
-        addChild(t)
-        titleLabel = t
-
-        clueLabels = level1Targets.map { def in
-            let l = SKLabelNode(text: "○  \(def.clue)")
-            l.fontName = "AvenirNext-Regular"
-            l.fontSize = 15
-            l.fontColor = .white
-            l.horizontalAlignmentMode = .left
-            l.verticalAlignmentMode = .center
-            l.numberOfLines = 0
-            l.preferredMaxLayoutWidth = size.width - 48
-            l.zPosition = 51
-            addChild(l)
-            return l
-        }
-    }
+    // MARK: Layout
 
     private func layoutForSize() {
         guard let bg = backgroundNode else { return }
@@ -262,50 +231,19 @@ final class FirstScene: SKScene {
         zoomScale = zoomScale.clamped(to: minZoom...maxZoom)
         worldNode.setScale(zoomScale)
         clampWorldPosition()
-
-        let hudHeight: CGFloat = min(200, size.height * 0.28)
-        gameplayHudTop = hudHeight
-        let path = CGMutablePath()
-        path.addRect(CGRect(x: 0, y: 0, width: size.width, height: hudHeight))
-        hudBar.path = path
-        hudBar.position = .zero
-
-        titleLabel.position = CGPoint(x: size.width / 2, y: hudHeight - 18)
-
-        let leftX: CGFloat = 24
-        var y = hudHeight - 44
-        for label in clueLabels {
-            label.position = CGPoint(x: leftX, y: y)
-            label.preferredMaxLayoutWidth = size.width - 48
-            y -= 22
-        }
-
-        layoutWinOverlayIfNeeded()
     }
 
-    // MARK: Input
+    // MARK: Tap-to-find (gameplay interaction — stays in SpriteKit)
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let touch = touches.first else { return }
-        let p = touch.location(in: self)
-
-        if isComplete, let btn = winDismissButton {
-            let inBtn = touch.location(in: btn)
-            if btn.contains(inBtn) {
-                returnToMenu()
-                return
-            }
-            return
-        }
-
-        let hudTop = hudBar.path?.boundingBox.height ?? 0
-        if p.y <= hudTop { return }
+        guard !gameState.isComplete, let touch = touches.first else { return }
 
         guard let bg = backgroundNode,
               let texture = bg.texture,
               texture.size().width > 0,
               texture.size().height > 0 else { return }
 
+        let p = touch.location(in: self)
         let local = touch.location(in: bg)
         let w = bg.size.width
         let h = bg.size.height
@@ -313,39 +251,26 @@ final class FirstScene: SKScene {
         let v = (local.y + h / 2) / h
 
         guard u >= 0, u <= 1, v >= 0, v <= 1 else {
-            wrongTap(at: p)
+            wrongRipple(at: p)
             return
         }
 
-        for i in level1Targets.indices where !foundFlags[i] {
+        for i in level1Targets.indices where !gameState.foundFlags[i] {
             let r = level1Targets[i].nRect
             if u >= r.minX, u <= r.maxX, v >= r.minY, v <= r.maxY {
-                markFound(index: i, at: p)
+                gameState.foundFlags[i] = true
+                correctRipple(at: p)
+                if !gameState.foundFlags.contains(false) {
+                    gameState.isComplete = true
+                }
                 return
             }
         }
 
-        wrongTap(at: p)
+        wrongRipple(at: p)
     }
 
-    private func markFound(index: Int, at scenePoint: CGPoint) {
-        foundFlags[index] = true
-        refreshClues()
-        correctRipple(at: scenePoint)
-        if !foundFlags.contains(false) {
-            showWinOverlay()
-        }
-    }
-
-    private func refreshClues() {
-        for i in clueLabels.indices {
-            let prefix = foundFlags[i] ? "✓  " : "○  "
-            clueLabels[i].text = "\(prefix)\(level1Targets[i].clue)"
-            clueLabels[i].fontColor = foundFlags[i]
-                ? SKColor(red: 0.5, green: 0.95, blue: 0.55, alpha: 1)
-                : .white
-        }
-    }
+    // MARK: Visual feedback (stays in SpriteKit — these are scene-space effects)
 
     private func correctRipple(at point: CGPoint) {
         let ring = SKShapeNode(circleOfRadius: 8)
@@ -360,7 +285,7 @@ final class FirstScene: SKScene {
         ring.run(SKAction.group([grow, fade])) { ring.removeFromParent() }
     }
 
-    private func wrongTap(at point: CGPoint) {
+    private func wrongRipple(at point: CGPoint) {
         let flash = SKShapeNode(circleOfRadius: 6)
         flash.strokeColor = SKColor.white.withAlphaComponent(0.5)
         flash.fillColor = .clear
@@ -376,78 +301,6 @@ final class FirstScene: SKScene {
             .removeFromParent(),
         ]))
     }
-
-    // MARK: Win + navigation
-
-    private func showWinOverlay() {
-        isComplete = true
-
-        let root = SKNode()
-        root.zPosition = 200
-        addChild(root)
-        winOverlay = root
-
-        let dim = SKSpriteNode(color: SKColor(white: 0, alpha: 0.55), size: size)
-        dim.anchorPoint = CGPoint(x: 0, y: 0)
-        dim.position = .zero
-        root.addChild(dim)
-
-        let msg = SKLabelNode(text: "You found them all!")
-        msg.fontName = "AvenirNext-Bold"
-        msg.fontSize = 28
-        msg.fontColor = .white
-        msg.position = CGPoint(x: size.width / 2, y: size.height / 2 + 24)
-        root.addChild(msg)
-
-        let sub = SKLabelNode(text: level1Name)
-        sub.fontName = "AvenirNext-Regular"
-        sub.fontSize = 17
-        sub.fontColor = SKColor(white: 0.85, alpha: 1)
-        sub.position = CGPoint(x: size.width / 2, y: size.height / 2 - 8)
-        root.addChild(sub)
-
-        let btn = SKShapeNode(rectOf: CGSize(width: 220, height: 52), cornerRadius: 14)
-        btn.fillColor = SKColor(white: 0.22, alpha: 1)
-        btn.strokeColor = SKColor.white.withAlphaComponent(0.45)
-        btn.lineWidth = 2
-        btn.position = CGPoint(x: size.width / 2, y: size.height / 2 - 72)
-        btn.name = "winOk"
-        root.addChild(btn)
-        winDismissButton = btn
-
-        let btnLabel = SKLabelNode(text: "Back to menu")
-        btnLabel.fontName = "AvenirNext-DemiBold"
-        btnLabel.fontSize = 18
-        btnLabel.fontColor = .white
-        btnLabel.verticalAlignmentMode = .center
-        btnLabel.position = btn.position
-        btnLabel.zPosition = 1
-        root.addChild(btnLabel)
-    }
-
-    private func layoutWinOverlayIfNeeded() {
-        guard let root = winOverlay else { return }
-        root.children.forEach { child in
-            if let s = child as? SKSpriteNode, s.color == SKColor(white: 0, alpha: 0.55) {
-                s.size = size
-            }
-        }
-        for child in root.children {
-            guard let label = child as? SKLabelNode else { continue }
-            if label.text == "You found them all!" {
-                label.position = CGPoint(x: size.width / 2, y: size.height / 2 + 24)
-            } else if label.text == level1Name {
-                label.position = CGPoint(x: size.width / 2, y: size.height / 2 - 8)
-            } else if label.text == "Back to menu" {
-                label.position = CGPoint(x: size.width / 2, y: size.height / 2 - 72)
-            }
-        }
-        winDismissButton?.position = CGPoint(x: size.width / 2, y: size.height / 2 - 72)
-    }
-
-    private func returnToMenu() {
-        onRequestMenu?()
-    }
 }
 
 // MARK: - Gesture delegate
@@ -459,15 +312,7 @@ extension FirstScene: UIGestureRecognizerDelegate {
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        if isComplete { return false }
-
-        guard let pan = panGesture, gestureRecognizer === pan, let skView = view else {
-            return true
-        }
-
-        let p = pan.location(in: skView)
-        let q = convertPoint(fromView: p)
-        if q.y <= gameplayHudTop { return false }
+        if gameState.isComplete { return false }
         return true
     }
 }
