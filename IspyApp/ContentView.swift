@@ -1,6 +1,24 @@
 import SwiftUI
 import SpriteKit
 
+// MARK: - Layout scaling
+
+struct ScaledMetric {
+    let factor: CGFloat
+    func value(_ base: CGFloat) -> CGFloat { base * factor }
+}
+
+private struct ScaleKey: EnvironmentKey {
+    static let defaultValue = ScaledMetric(factor: 1.0)
+}
+
+extension EnvironmentValues {
+    var uiScale: ScaledMetric {
+        get { self[ScaleKey.self] }
+        set { self[ScaleKey.self] = newValue }
+    }
+}
+
 // MARK: - Shared navigation + game state
 
 struct FindableItem: Identifiable {
@@ -15,7 +33,6 @@ final class GameState {
     var foundFlags: [Bool] = []
     var isComplete = false
     var levelName = ""
-    var clues: [String] = []
     var items: [FindableItem] = []
     var settingsOpen = false
 
@@ -58,16 +75,25 @@ enum ActiveScreen {
 struct ContentView: View {
 
     @State private var state = GameState()
+    @State private var sceneID = UUID()
+    @State private var currentScene: SKScene?
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    private var uiScale: ScaledMetric {
+        ScaledMetric(factor: sizeClass == .regular ? 1.35 : 1.0)
+    }
 
     var body: some View {
         ZStack {
             Color(white: 0.08)
                 .ignoresSafeArea()
 
-            SpriteView(scene: sceneForScreen())
-                .ignoresSafeArea()
-                .id(state.activeScreen)
-                .transition(.opacity)
+            if let scene = currentScene {
+                SpriteView(scene: scene)
+                    .ignoresSafeArea()
+                    .id(sceneID)
+                    .transition(.opacity)
+            }
 
             switch state.activeScreen {
             case .menu:
@@ -78,20 +104,29 @@ struct ContentView: View {
                     .transition(.opacity)
             }
         }
+        .environment(\.uiScale, uiScale)
         .animation(.easeInOut(duration: 0.25), value: state.activeScreen)
+        .preferredColorScheme(.dark)
+        .onChange(of: state.activeScreen) { _, _ in
+            buildScene()
+        }
+        .onAppear { buildScene() }
     }
 
-    private func sceneForScreen() -> SKScene {
+    private func buildScene() {
+        state.settingsOpen = false
+        state.hintTargetIndex = nil
+
+        let scene: SKScene
         switch state.activeScreen {
         case .menu:
-            let scene = MenuScene()
-            scene.scaleMode = .resizeFill
-            return scene
+            scene = MenuScene()
         case .level:
-            let scene = FirstScene(gameState: state)
-            scene.scaleMode = .resizeFill
-            return scene
+            scene = FirstScene(gameState: state)
         }
+        scene.scaleMode = .resizeFill
+        currentScene = scene
+        sceneID = UUID()
     }
 }
 
@@ -99,26 +134,27 @@ struct ContentView: View {
 
 private struct MenuOverlay: View {
     let state: GameState
+    @Environment(\.uiScale) private var scale
 
     var body: some View {
         ZStack {
-            VStack(spacing: 40) {
+            VStack(spacing: scale.value(40)) {
                 Text("I Spy")
-                    .font(.custom("AvenirNext-Bold", size: 52))
+                    .font(.custom("AvenirNext-Bold", size: scale.value(52)))
                     .foregroundStyle(.white)
 
                 Button {
                     state.activeScreen = .level
                 } label: {
                     Text("Play Level 1")
-                        .font(.custom("AvenirNext-Bold", size: 34))
+                        .font(.custom("AvenirNext-Bold", size: scale.value(34)))
                         .foregroundStyle(.white)
-                        .frame(width: 320, height: 110)
+                        .frame(width: scale.value(320), height: scale.value(110))
                         .background(
-                            RoundedRectangle(cornerRadius: 18)
+                            RoundedRectangle(cornerRadius: scale.value(18))
                                 .fill(Color(white: 0.18))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 18)
+                                    RoundedRectangle(cornerRadius: scale.value(18))
                                         .strokeBorder(.white.opacity(0.5), lineWidth: 3)
                                 )
                         )
@@ -132,8 +168,8 @@ private struct MenuOverlay: View {
                     CoinPill(coins: state.coins)
                     SettingsButton(state: state)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+                .padding(.horizontal, scale.value(16))
+                .padding(.top, scale.value(8))
                 Spacer()
             }
 
@@ -148,12 +184,19 @@ private struct MenuOverlay: View {
 
 private struct LevelOverlay: View {
     let state: GameState
+    @Environment(\.uiScale) private var scale
 
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
                 topBar
                 Spacer()
+                HStack {
+                    Spacer()
+                    HintButton(state: state)
+                }
+                .padding(.trailing, scale.value(16))
+                .padding(.bottom, scale.value(10))
                 itemBar
             }
 
@@ -168,24 +211,23 @@ private struct LevelOverlay: View {
     }
 
     private var topBar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: scale.value(10)) {
             Button {
                 state.activeScreen = .menu
             } label: {
                 Label("Back", systemImage: "chevron.left")
-                    .font(.custom("AvenirNext-DemiBold", size: 17))
+                    .font(.custom("AvenirNext-DemiBold", size: scale.value(17)))
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    .padding(.horizontal, scale.value(14))
+                    .padding(.vertical, scale.value(8))
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: scale.value(10)))
             }
             Spacer()
-            HintButton(state: state)
             CoinPill(coins: state.coins)
             SettingsButton(state: state)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
+        .padding(.horizontal, scale.value(16))
+        .padding(.top, scale.value(8))
     }
 
     private var itemBar: some View {
@@ -196,8 +238,8 @@ private struct LevelOverlay: View {
                     .frame(maxWidth: .infinity)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 10)
+        .padding(.horizontal, scale.value(8))
+        .padding(.vertical, scale.value(10))
         .background(.ultraThinMaterial, in: Rectangle())
     }
 
@@ -206,33 +248,33 @@ private struct LevelOverlay: View {
             Color.black.opacity(0.55)
                 .ignoresSafeArea()
 
-            VStack(spacing: 12) {
+            VStack(spacing: scale.value(12)) {
                 Text("You found them all!")
-                    .font(.custom("AvenirNext-Bold", size: 28))
+                    .font(.custom("AvenirNext-Bold", size: scale.value(28)))
                     .foregroundStyle(.white)
 
                 Text(state.levelName)
-                    .font(.custom("AvenirNext-Regular", size: 17))
+                    .font(.custom("AvenirNext-Regular", size: scale.value(17)))
                     .foregroundStyle(Color(white: 0.85))
 
                 Button {
                     state.activeScreen = .menu
                 } label: {
                     Text("Back to menu")
-                        .font(.custom("AvenirNext-DemiBold", size: 18))
+                        .font(.custom("AvenirNext-DemiBold", size: scale.value(18)))
                         .foregroundStyle(.white)
-                        .frame(width: 220, height: 52)
+                        .frame(width: scale.value(220), height: scale.value(52))
                         .background(
-                            RoundedRectangle(cornerRadius: 14)
+                            RoundedRectangle(cornerRadius: scale.value(14))
                                 .fill(Color(white: 0.22))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 14)
+                                    RoundedRectangle(cornerRadius: scale.value(14))
                                         .strokeBorder(.white.opacity(0.45), lineWidth: 2)
                                 )
                         )
                 }
                 .buttonStyle(.plain)
-                .padding(.top, 20)
+                .padding(.top, scale.value(20))
             }
         }
     }
@@ -242,20 +284,23 @@ private struct LevelOverlay: View {
 
 private struct CoinPill: View {
     let coins: Int
+    @Environment(\.uiScale) private var scale
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: scale.value(5)) {
             Image(systemName: "circle.fill")
-                .font(.system(size: 14))
+                .font(.system(size: scale.value(14)))
                 .foregroundStyle(Color(red: 1.0, green: 0.82, blue: 0.2))
             Text("\(coins)")
-                .font(.custom("AvenirNext-DemiBold", size: 16))
+                .font(.custom("AvenirNext-DemiBold", size: scale.value(16)))
                 .foregroundStyle(.white)
                 .monospacedDigit()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal, scale.value(12))
+        .padding(.vertical, scale.value(7))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: scale.value(10)))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(coins) coins")
     }
 }
 
@@ -263,28 +308,31 @@ private struct CoinPill: View {
 
 private struct HintButton: View {
     let state: GameState
+    @Environment(\.uiScale) private var scale
 
     var body: some View {
         Button {
             state.useHint()
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: scale.value(5)) {
                 Image(systemName: "lightbulb.fill")
-                    .font(.system(size: 15))
+                    .font(.system(size: scale.value(15)))
                 Text("\(GameState.hintCost)")
-                    .font(.custom("AvenirNext-DemiBold", size: 14))
+                    .font(.custom("AvenirNext-DemiBold", size: scale.value(14)))
                     .monospacedDigit()
                 Image(systemName: "circle.fill")
-                    .font(.system(size: 9))
+                    .font(.system(size: scale.value(9)))
                     .foregroundStyle(Color(red: 1.0, green: 0.82, blue: 0.2))
             }
             .foregroundStyle(state.canAffordHint ? .white : Color(white: 0.45))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, scale.value(12))
+            .padding(.vertical, scale.value(8))
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: scale.value(10)))
         }
         .buttonStyle(.plain)
         .disabled(!state.canAffordHint)
+        .accessibilityLabel("Use hint")
+        .accessibilityValue(state.canAffordHint ? "Available, costs \(GameState.hintCost) coins" : "Not enough coins")
     }
 }
 
@@ -292,18 +340,20 @@ private struct HintButton: View {
 
 private struct SettingsButton: View {
     let state: GameState
+    @Environment(\.uiScale) private var scale
 
     var body: some View {
         Button {
             state.settingsOpen = true
         } label: {
             Image(systemName: "gearshape.fill")
-                .font(.system(size: 18))
+                .font(.system(size: scale.value(18)))
                 .foregroundStyle(.white)
-                .padding(10)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                .padding(scale.value(10))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: scale.value(10)))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Settings")
     }
 }
 
@@ -311,78 +361,86 @@ private struct SettingsButton: View {
 
 private struct SettingsSheet: View {
     let state: GameState
+    @Environment(\.uiScale) private var scale
 
     var body: some View {
         ZStack {
             Color.black.opacity(0.6)
                 .ignoresSafeArea()
+                .onTapGesture { state.settingsOpen = false }
 
-            VStack(spacing: 24) {
+            VStack(spacing: scale.value(24)) {
                 Text("Settings")
-                    .font(.custom("AvenirNext-Bold", size: 28))
+                    .font(.custom("AvenirNext-Bold", size: scale.value(28)))
                     .foregroundStyle(.white)
 
                 Text("Coming soon")
-                    .font(.custom("AvenirNext-Regular", size: 17))
+                    .font(.custom("AvenirNext-Regular", size: scale.value(17)))
                     .foregroundStyle(Color(white: 0.7))
 
                 Button {
                     state.settingsOpen = false
                 } label: {
                     Text("Close")
-                        .font(.custom("AvenirNext-DemiBold", size: 18))
+                        .font(.custom("AvenirNext-DemiBold", size: scale.value(18)))
                         .foregroundStyle(.white)
-                        .frame(width: 180, height: 48)
+                        .frame(width: scale.value(180), height: scale.value(48))
                         .background(
-                            RoundedRectangle(cornerRadius: 14)
+                            RoundedRectangle(cornerRadius: scale.value(14))
                                 .fill(Color(white: 0.22))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 14)
+                                    RoundedRectangle(cornerRadius: scale.value(14))
                                         .strokeBorder(.white.opacity(0.45), lineWidth: 2)
                                 )
                         )
                 }
                 .buttonStyle(.plain)
             }
-            .padding(40)
+            .padding(scale.value(40))
             .background(
-                RoundedRectangle(cornerRadius: 20)
+                RoundedRectangle(cornerRadius: scale.value(20))
                     .fill(Color(white: 0.12))
             )
         }
     }
 }
 
-// MARK: - Findable item cell (reusable — swap icon for real asset later)
+// MARK: - Findable item cell
 
 private struct FindableItemView: View {
     let item: FindableItem
     let found: Bool
+    @Environment(\.uiScale) private var scale
+
+    private let foundColor = Color(red: 0.5, green: 0.95, blue: 0.55)
+    private let checkColor = Color(red: 0.4, green: 0.85, blue: 0.45)
 
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: scale.value(4)) {
             ZStack {
                 Circle()
-                    .fill(found ? Color(red: 0.5, green: 0.95, blue: 0.55).opacity(0.25) : Color.white.opacity(0.1))
-                    .frame(width: 44, height: 44)
+                    .fill(found ? foundColor.opacity(0.25) : Color.white.opacity(0.1))
+                    .frame(width: scale.value(44), height: scale.value(44))
 
                 Image(systemName: item.icon)
-                    .font(.system(size: 20))
-                    .foregroundStyle(found ? Color(red: 0.5, green: 0.95, blue: 0.55) : .white)
+                    .font(.system(size: scale.value(20)))
+                    .foregroundStyle(found ? foundColor : .white)
 
                 if found {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(Color(red: 0.4, green: 0.85, blue: 0.45))
-                        .offset(x: 16, y: -16)
+                        .font(.system(size: scale.value(14)))
+                        .foregroundStyle(checkColor)
+                        .offset(x: scale.value(16), y: scale.value(-16))
                 }
             }
 
             Text(item.name)
-                .font(.custom("AvenirNext-Regular", size: 10))
-                .foregroundStyle(found ? Color(red: 0.5, green: 0.95, blue: 0.55) : Color(white: 0.75))
+                .font(.custom("AvenirNext-Regular", size: scale.value(10)))
+                .foregroundStyle(found ? foundColor : Color(white: 0.75))
                 .lineLimit(1)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(item.name), \(found ? "found" : "not found")")
     }
 }
 

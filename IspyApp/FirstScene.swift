@@ -61,7 +61,6 @@ final class FirstScene: SKScene {
         anchorPoint = .zero
 
         gameState.levelName = level1Name
-        gameState.clues = level1Targets.map(\.name)
         gameState.items = level1Targets.enumerated().map { i, t in
             FindableItem(id: i, name: t.name, icon: t.icon)
         }
