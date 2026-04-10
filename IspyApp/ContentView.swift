@@ -18,6 +18,35 @@ final class GameState {
     var clues: [String] = []
     var items: [FindableItem] = []
     var settingsOpen = false
+
+    // Currency
+    var coins: Int = 0
+    static let coinsPerFind = 10
+    static let coinsPerLevel = 50
+    static let hintCost = 25
+
+    // Hint — index of the item to highlight, nil when idle
+    var hintTargetIndex: Int?
+
+    var canAffordHint: Bool {
+        coins >= Self.hintCost && !isComplete && foundFlags.contains(false)
+    }
+
+    func awardFind() {
+        coins += Self.coinsPerFind
+    }
+
+    func awardLevelComplete() {
+        coins += Self.coinsPerLevel
+    }
+
+    func useHint() {
+        guard canAffordHint else { return }
+        let unfound = foundFlags.enumerated().compactMap { i, found in found ? nil : i }
+        guard let target = unfound.randomElement() else { return }
+        coins -= Self.hintCost
+        hintTargetIndex = target
+    }
 }
 
 enum ActiveScreen {
@@ -100,6 +129,7 @@ private struct MenuOverlay: View {
             VStack {
                 HStack {
                     Spacer()
+                    CoinPill(coins: state.coins)
                     SettingsButton(state: state)
                 }
                 .padding(.horizontal, 16)
@@ -138,7 +168,7 @@ private struct LevelOverlay: View {
     }
 
     private var topBar: some View {
-        HStack {
+        HStack(spacing: 10) {
             Button {
                 state.activeScreen = .menu
             } label: {
@@ -150,6 +180,8 @@ private struct LevelOverlay: View {
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
             }
             Spacer()
+            HintButton(state: state)
+            CoinPill(coins: state.coins)
             SettingsButton(state: state)
         }
         .padding(.horizontal, 16)
@@ -203,6 +235,56 @@ private struct LevelOverlay: View {
                 .padding(.top, 20)
             }
         }
+    }
+}
+
+// MARK: - Coin pill
+
+private struct CoinPill: View {
+    let coins: Int
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "circle.fill")
+                .font(.system(size: 14))
+                .foregroundStyle(Color(red: 1.0, green: 0.82, blue: 0.2))
+            Text("\(coins)")
+                .font(.custom("AvenirNext-DemiBold", size: 16))
+                .foregroundStyle(.white)
+                .monospacedDigit()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+// MARK: - Hint button (level only)
+
+private struct HintButton: View {
+    let state: GameState
+
+    var body: some View {
+        Button {
+            state.useHint()
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "lightbulb.fill")
+                    .font(.system(size: 15))
+                Text("\(GameState.hintCost)")
+                    .font(.custom("AvenirNext-DemiBold", size: 14))
+                    .monospacedDigit()
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Color(red: 1.0, green: 0.82, blue: 0.2))
+            }
+            .foregroundStyle(state.canAffordHint ? .white : Color(white: 0.45))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .disabled(!state.canAffordHint)
     }
 }
 

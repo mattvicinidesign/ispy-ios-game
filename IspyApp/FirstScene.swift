@@ -84,6 +84,17 @@ final class FirstScene: SKScene {
         layoutForSize()
     }
 
+    private var pendingHintConsumed = false
+
+    override func update(_ currentTime: TimeInterval) {
+        if let idx = gameState.hintTargetIndex, !pendingHintConsumed {
+            pendingHintConsumed = true
+            showHint(for: idx)
+        } else if gameState.hintTargetIndex == nil {
+            pendingHintConsumed = false
+        }
+    }
+
     // MARK: Background
 
     private func setupBackground() {
@@ -257,15 +268,90 @@ final class FirstScene: SKScene {
             let r = level1Targets[i].nRect
             if u >= r.minX, u <= r.maxX, v >= r.minY, v <= r.maxY {
                 gameState.foundFlags[i] = true
+                gameState.awardFind()
+                if gameState.hintTargetIndex == i { gameState.hintTargetIndex = nil }
                 correctRipple(at: p)
                 if !gameState.foundFlags.contains(false) {
                     gameState.isComplete = true
+                    gameState.awardLevelComplete()
                 }
                 return
             }
         }
 
         wrongRipple(at: p)
+    }
+
+    // MARK: Hint
+
+    func showHint(for targetIndex: Int) {
+        guard targetIndex < level1Targets.count,
+              let bg = backgroundNode else { return }
+
+        let target = level1Targets[targetIndex]
+        let centerU = target.nRect.midX
+        let centerV = target.nRect.midY
+
+        let worldX = (centerU - 0.5) * bg.size.width
+        let worldY = (centerV - 0.5) * bg.size.height
+
+        let desiredScale: CGFloat = 2.0
+        let newScale = desiredScale.clamped(to: minZoom...maxZoom)
+
+        let targetWorldPos = CGPoint(
+            x: size.width / 2 - worldX * newScale,
+            y: size.height / 2 - worldY * newScale
+        )
+
+        let panAction = SKAction.move(to: targetWorldPos, duration: 0.4)
+        panAction.timingMode = .easeInEaseOut
+
+        let scaleAction = SKAction.scale(to: newScale, duration: 0.4)
+        scaleAction.timingMode = .easeInEaseOut
+
+        worldNode.run(SKAction.group([panAction, scaleAction])) { [weak self] in
+            guard let self else { return }
+            self.zoomScale = newScale
+            self.clampWorldPosition()
+
+            let sceneX = self.worldNode.position.x + worldX * newScale
+            let sceneY = self.worldNode.position.y + worldY * newScale
+            self.hintRing(at: CGPoint(x: sceneX, y: sceneY))
+        }
+    }
+
+    private func hintRing(at point: CGPoint) {
+        let ring = SKShapeNode(circleOfRadius: 28)
+        ring.strokeColor = SKColor(red: 1.0, green: 0.85, blue: 0.2, alpha: 0.9)
+        ring.fillColor = .clear
+        ring.lineWidth = 3
+        ring.position = point
+        ring.zPosition = 50
+        ring.setScale(0.5)
+        ring.alpha = 0
+        addChild(ring)
+
+        let appear = SKAction.group([
+            SKAction.fadeIn(withDuration: 0.2),
+            SKAction.scale(to: 1.0, duration: 0.2),
+        ])
+        let pulse = SKAction.sequence([
+            SKAction.scale(to: 1.15, duration: 0.5),
+            SKAction.scale(to: 0.9, duration: 0.5),
+        ])
+        let fadeOut = SKAction.group([
+            SKAction.fadeOut(withDuration: 0.4),
+            SKAction.scale(to: 1.6, duration: 0.4),
+        ])
+
+        ring.run(SKAction.sequence([
+            appear,
+            SKAction.repeat(pulse, count: 3),
+            fadeOut,
+            .removeFromParent(),
+        ])) { [weak self] in
+            self?.gameState.hintTargetIndex = nil
+        }
     }
 
     // MARK: Visual feedback (stays in SpriteKit — these are scene-space effects)
