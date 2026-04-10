@@ -9,28 +9,23 @@ private extension CGFloat {
 // MARK: - Level 1 data
 
 private struct Level1Target {
-    let clue: String
+    let name: String
+    let icon: String
     let nRect: CGRect
 }
 
 private let level1Name = "The Morning Room"
 private let level1Targets: [Level1Target] = [
-    Level1Target(
-        clue: "I spy something soft you can sit on.",
-        nRect: CGRect(x: 0.06, y: 0.14, width: 0.26, height: 0.34)
-    ),
-    Level1Target(
-        clue: "I spy something that tells the time.",
-        nRect: CGRect(x: 0.38, y: 0.52, width: 0.18, height: 0.22)
-    ),
-    Level1Target(
-        clue: "I spy something green and growing.",
-        nRect: CGRect(x: 0.62, y: 0.20, width: 0.22, height: 0.30)
-    ),
-    Level1Target(
-        clue: "I spy something with pages to turn.",
-        nRect: CGRect(x: 0.72, y: 0.55, width: 0.20, height: 0.18)
-    ),
+    Level1Target(name: "Sofa",    icon: "sofa.fill",           nRect: CGRect(x: 0.06, y: 0.14, width: 0.26, height: 0.34)),
+    Level1Target(name: "Clock",   icon: "clock.fill",          nRect: CGRect(x: 0.38, y: 0.52, width: 0.18, height: 0.22)),
+    Level1Target(name: "Plant",   icon: "leaf.fill",           nRect: CGRect(x: 0.62, y: 0.20, width: 0.22, height: 0.30)),
+    Level1Target(name: "Book",    icon: "book.fill",           nRect: CGRect(x: 0.72, y: 0.55, width: 0.20, height: 0.18)),
+    Level1Target(name: "Lamp",    icon: "lamp.desk.fill",      nRect: CGRect(x: 0.30, y: 0.70, width: 0.12, height: 0.18)),
+    Level1Target(name: "Vase",    icon: "vase.2.fill",         nRect: CGRect(x: 0.85, y: 0.30, width: 0.10, height: 0.20)),
+    Level1Target(name: "Frame",   icon: "photo.artframe",      nRect: CGRect(x: 0.15, y: 0.65, width: 0.14, height: 0.18)),
+    Level1Target(name: "Cup",     icon: "cup.and.saucer.fill", nRect: CGRect(x: 0.50, y: 0.10, width: 0.10, height: 0.12)),
+    Level1Target(name: "Candle",  icon: "flame.fill",          nRect: CGRect(x: 0.42, y: 0.38, width: 0.08, height: 0.14)),
+    Level1Target(name: "Rug",     icon: "rectangle.fill",      nRect: CGRect(x: 0.20, y: 0.02, width: 0.50, height: 0.10)),
 ]
 
 // MARK: - Scene (gameplay rendering only — all UI is SwiftUI)
@@ -62,11 +57,14 @@ final class FirstScene: SKScene {
     // MARK: Lifecycle
 
     override func didMove(to view: SKView) {
-        backgroundColor = .black
+        backgroundColor = SKColor(white: 0.08, alpha: 1.0)
         anchorPoint = .zero
 
         gameState.levelName = level1Name
-        gameState.clues = level1Targets.map(\.clue)
+        gameState.clues = level1Targets.map(\.name)
+        gameState.items = level1Targets.enumerated().map { i, t in
+            FindableItem(id: i, name: t.name, icon: t.icon)
+        }
         gameState.foundFlags = Array(repeating: false, count: level1Targets.count)
         gameState.isComplete = false
 
