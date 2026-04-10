@@ -38,7 +38,6 @@ private let level1Targets: [Level1Target] = [
 
 final class FirstScene: SKScene {
 
-    /// Holds the artwork; scaled & moved for zoom / pan.
     private let worldNode = SKNode()
     private var backgroundNode: SKSpriteNode!
 
@@ -54,8 +53,6 @@ final class FirstScene: SKScene {
     private var hudBar: SKShapeNode!
     private var clueLabels: [SKLabelNode] = []
     private var titleLabel: SKLabelNode!
-    private var backButton: SKShapeNode!
-    private var backLabel: SKLabelNode!
 
     private var foundFlags: [Bool] = []
     private var isComplete = false
@@ -63,8 +60,10 @@ final class FirstScene: SKScene {
     private var winOverlay: SKNode?
     private var winDismissButton: SKShapeNode?
 
-    /// Scene Y above this is the artwork (below is HUD); used to avoid stealing pans from the clue strip.
     private var gameplayHudTop: CGFloat = 0
+
+    /// Called by SwiftUI to navigate back; set before presenting the scene.
+    var onRequestMenu: (() -> Void)?
 
     // MARK: Lifecycle
 
@@ -76,7 +75,6 @@ final class FirstScene: SKScene {
         setupBackground()
         addChild(worldNode)
         setupHUD()
-        setupBackButton()
         layoutForSize()
         attachGestures(to: view)
     }
@@ -119,12 +117,16 @@ final class FirstScene: SKScene {
     private func attachGestures(to view: SKView) {
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
         pinch.delegate = self
+        pinch.cancelsTouchesInView = false
+        pinch.delaysTouchesEnded = false
         view.addGestureRecognizer(pinch)
         pinchGesture = pinch
 
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         pan.minimumNumberOfTouches = 1
         pan.maximumNumberOfTouches = 2
+        pan.cancelsTouchesInView = false
+        pan.delaysTouchesEnded = false
         pan.delegate = self
         view.addGestureRecognizer(pan)
         panGesture = pan
@@ -136,12 +138,8 @@ final class FirstScene: SKScene {
             panGesture = nil
             return
         }
-        if let pinchGesture {
-            view.removeGestureRecognizer(pinchGesture)
-        }
-        if let panGesture {
-            view.removeGestureRecognizer(panGesture)
-        }
+        if let pinchGesture { view.removeGestureRecognizer(pinchGesture) }
+        if let panGesture { view.removeGestureRecognizer(panGesture) }
         pinchGesture = nil
         panGesture = nil
     }
@@ -199,7 +197,6 @@ final class FirstScene: SKScene {
         clampWorldPosition()
     }
 
-    /// Keeps the scaled sprite from drifting past edges; when the image is larger than the screen, allows pan across the full range.
     private func clampWorldPosition() {
         let z = worldNode.xScale
         let halfW = backgroundNode.size.width * z / 2
@@ -250,27 +247,6 @@ final class FirstScene: SKScene {
         }
     }
 
-    private func setupBackButton() {
-        let btn = SKShapeNode(rectOf: CGSize(width: 100, height: 40), cornerRadius: 8)
-        btn.fillColor = SKColor(white: 0.2, alpha: 0.9)
-        btn.strokeColor = SKColor.white.withAlphaComponent(0.35)
-        btn.lineWidth = 1
-        btn.zPosition = 60
-        btn.name = "back"
-        addChild(btn)
-        backButton = btn
-
-        let lbl = SKLabelNode(text: "← Menu")
-        lbl.fontName = "AvenirNext-DemiBold"
-        lbl.fontSize = 16
-        lbl.fontColor = .white
-        lbl.verticalAlignmentMode = .center
-        lbl.horizontalAlignmentMode = .center
-        lbl.zPosition = 61
-        addChild(lbl)
-        backLabel = lbl
-    }
-
     private func layoutForSize() {
         guard let bg = backgroundNode else { return }
 
@@ -304,9 +280,6 @@ final class FirstScene: SKScene {
             y -= 22
         }
 
-        backButton.position = CGPoint(x: 58, y: size.height - 36)
-        backLabel.position = CGPoint(x: 58, y: size.height - 36)
-
         layoutWinOverlayIfNeeded()
     }
 
@@ -322,12 +295,6 @@ final class FirstScene: SKScene {
                 returnToMenu()
                 return
             }
-            return
-        }
-
-        let inBack = touch.location(in: backButton)
-        if backButton.contains(inBack) {
-            returnToMenu()
             return
         }
 
@@ -479,10 +446,7 @@ final class FirstScene: SKScene {
     }
 
     private func returnToMenu() {
-        detachGestures(from: view)
-        let menu = MenuScene(size: size)
-        menu.scaleMode = .resizeFill
-        view?.presentScene(menu, transition: SKTransition.fade(withDuration: 0.35))
+        onRequestMenu?()
     }
 }
 
@@ -495,14 +459,15 @@ extension FirstScene: UIGestureRecognizerDelegate {
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard let pan = panGesture, gestureRecognizer === pan, !isComplete, let skView = view else {
+        if isComplete { return false }
+
+        guard let pan = panGesture, gestureRecognizer === pan, let skView = view else {
             return true
         }
 
         let p = pan.location(in: skView)
         let q = convertPoint(fromView: p)
         if q.y <= gameplayHudTop { return false }
-        if q.x <= 130, q.y >= size.height - 96 { return false }
         return true
     }
 }

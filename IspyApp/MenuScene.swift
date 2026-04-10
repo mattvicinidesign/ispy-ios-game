@@ -1,9 +1,12 @@
 import SpriteKit
 
-/// Title screen; center-anchored. “Play Level 1” presents `FirstScene`.
+/// Title screen; center-anchored. "Play Level 1" calls `onStartGame` so SwiftUI can swap scenes.
 final class MenuScene: SKScene {
 
     private var playButton: SKShapeNode?
+
+    /// Set by SwiftUI to handle scene transitions.
+    var onStartGame: (() -> Void)?
 
     override func didMove(to view: SKView) {
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
@@ -54,13 +57,6 @@ final class MenuScene: SKScene {
         guard let touch = touches.first, let button = playButton else { return }
         let location = touch.location(in: self)
         guard button.contains(location) else { return }
-        startGame()
-    }
-
-    func startGame() {
-        let scene = FirstScene(size: size)
-        scene.scaleMode = .resizeFill
-        view?.presentScene(scene, transition: SKTransition.fade(withDuration: 0.3))
+        onStartGame?()
     }
 }
-
