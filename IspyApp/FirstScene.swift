@@ -34,8 +34,27 @@ private let level1Targets: [Level1Target] = [
     Level1Target(name: "Rug",     icon: "rectangle.fill",      nRect: CGRect(x: 0.20, y: 0.02, width: 0.50, height: 0.10)),
 ]
 
-private let bulbNormalizedU: CGFloat = 0.1027
-private let bulbNormalizedV: CGFloat = 0.9189
+// MARK: - ComputerSetup overlays (bulbs, etc.)
+// Scaling recipe for future overlays only: `.cursor/rules/scene-background-overlays.mdc`
+
+/// `ComputerSetup.jpg` pixel dimensions (must match asset).
+private let computerSetupSourcePixelWidth: CGFloat = 3590
+private let computerSetupSourcePixelHeight: CGFloat = 2772
+
+private let bulbNormalizedU: CGFloat = 0.1036
+private let bulbNormalizedV: CGFloat = 0.9185
+
+/// World-space offsets (points); negative x moves left, negative y moves down.
+private let bulbPositionNudgeX: CGFloat = -1
+private let bulbPositionNudgeY: CGFloat = -2
+
+private let bulbSpriteWidth: CGFloat = 72
+private let bulbSpriteHeight: CGFloat = 52
+/// Uniform scale on `(72, 52)` — much smaller on screen than raw asset points.
+private let bulbDisplaySizeScale: CGFloat = 0.35
+
+private let blueBulbNormalizedU: CGFloat = 0.0451
+private let blueBulbNormalizedV: CGFloat = 0.9328
 
 // MARK: - Scene (gameplay rendering only — all UI is SwiftUI)
 
@@ -44,6 +63,7 @@ final class FirstScene: SKScene {
     private let worldNode = SKNode()
     private var backgroundNode: SKSpriteNode!
     private var bulbNode: SKSpriteNode!
+    private var blueBulbNode: SKSpriteNode!
     private var dustEmitters: [SKEmitterNode] = []
 
     private var pinchGesture: UIPinchGestureRecognizer?
@@ -79,7 +99,7 @@ final class FirstScene: SKScene {
         gameState.isComplete = false
 
         setupBackground()
-        setupBulb()
+        setupBulbs()
         addChild(worldNode)
         layoutForSize()
         setupDustParticles()
@@ -148,20 +168,35 @@ final class FirstScene: SKScene {
         backgroundNode = bg
     }
 
-    private func setupBulb() {
-        let bulb = SKSpriteNode(imageNamed: "BulbYellowOn")
-        bulb.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        bulb.zPosition = 1
-        bulb.name = "bulb"
-        worldNode.addChild(bulb)
-        bulbNode = bulb
+    private func setupBulbs() {
+        let yellow = SKSpriteNode(imageNamed: "BulbYellowOn")
+        yellow.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        yellow.zPosition = 1
+        yellow.name = "bulbYellow"
+        worldNode.addChild(yellow)
+        bulbNode = yellow
+        addBulbBlinkLoop(to: yellow)
 
+        let blue = SKSpriteNode(imageNamed: "BulbBlueOn")
+        blue.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        blue.zPosition = 1
+        blue.name = "bulbBlue"
+        blue.size = CGSize(
+            width: bulbSpriteWidth * bulbDisplaySizeScale,
+            height: bulbSpriteHeight * bulbDisplaySizeScale
+        )
+        worldNode.addChild(blue)
+        blueBulbNode = blue
+        addBulbBlinkLoop(to: blue)
+    }
+
+    private func addBulbBlinkLoop(to node: SKSpriteNode) {
         let halfCycle = 1.5 / 2.0
         let fadeOut = SKAction.fadeAlpha(to: 0, duration: halfCycle)
         fadeOut.timingMode = .easeInEaseOut
         let fadeIn = SKAction.fadeAlpha(to: 1, duration: halfCycle)
         fadeIn.timingMode = .easeInEaseOut
-        bulb.run(SKAction.repeatForever(SKAction.sequence([fadeOut, fadeIn])))
+        node.run(SKAction.repeatForever(SKAction.sequence([fadeOut, fadeIn])))
     }
 
     // MARK: Gestures
@@ -278,11 +313,35 @@ final class FirstScene: SKScene {
 
         bg.position = .zero
 
-        // Scene space: (width * u, height * v); worldNode is centered, so use offset from center
-        // so the bulb tracks pan/zoom with the background.
-        bulbNode.position = CGPoint(
-            x: size.width * (bulbNormalizedU - 0.5),
-            y: size.height * (bulbNormalizedV - 0.5)
+        func positionOnBackground(u: CGFloat, v: CGFloat, nudgeX: CGFloat, nudgeY: CGFloat) -> CGPoint {
+            let sourceX = computerSetupSourcePixelWidth * u
+            let sourceY = computerSetupSourcePixelHeight * v
+            return CGPoint(
+                x: (sourceX / computerSetupSourcePixelWidth - 0.5) * bg.size.width + nudgeX,
+                y: (sourceY / computerSetupSourcePixelHeight - 0.5) * bg.size.height + nudgeY
+            )
+        }
+
+        bulbNode.position = positionOnBackground(
+            u: bulbNormalizedU,
+            v: bulbNormalizedV,
+            nudgeX: bulbPositionNudgeX,
+            nudgeY: bulbPositionNudgeY
+        )
+        bulbNode.size = CGSize(
+            width: bulbSpriteWidth * bulbDisplaySizeScale,
+            height: bulbSpriteHeight * bulbDisplaySizeScale
+        )
+
+        blueBulbNode.position = positionOnBackground(
+            u: blueBulbNormalizedU,
+            v: blueBulbNormalizedV,
+            nudgeX: 0,
+            nudgeY: 0
+        )
+        blueBulbNode.size = CGSize(
+            width: bulbSpriteWidth * bulbDisplaySizeScale,
+            height: bulbSpriteHeight * bulbDisplaySizeScale
         )
 
         worldNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
