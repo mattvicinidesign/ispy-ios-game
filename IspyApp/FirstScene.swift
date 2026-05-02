@@ -52,9 +52,45 @@ private let bulbSpriteWidth: CGFloat = 72
 private let bulbSpriteHeight: CGFloat = 52
 /// Uniform scale on `(72, 52)` — much smaller on screen than raw asset points.
 private let bulbDisplaySizeScale: CGFloat = 0.35
+private let bulbBlinkCycleDuration: TimeInterval = 3.0
 
 private let blueBulbNormalizedU: CGFloat = 0.0451
 private let blueBulbNormalizedV: CGFloat = 0.9328
+
+private let extraStringLightBulbNudgeX: CGFloat = 2
+private let extraStringLightBulbNudgeY: CGFloat = 10
+
+/// Per-bulb offsets in world space (added after global nudges). Right = +dx, up = +dy.
+private let extraStringLightBulbSpecs: [(asset: String, u: CGFloat, v: CGFloat, dx: CGFloat, dy: CGFloat)] = [
+    ("BulbTurquoiseOn", 0.0848, 0.9687, 0, 0),
+    ("BulbOrangeOn", 0.1541, 0.9565, 0, 4),
+    ("BulbMagentaOn", 0.1781, 0.9127, 0, 0),
+    ("BulbBlue2On", 0.2434, 0.9216, 0, 1),
+    ("BulbYellow2On", 0.2714, 0.9596, 0, 3),
+    ("BulbTurquoise2On", 0.2984, 0.9294, 0, -1),
+    ("BulbMagenta2On", 0.3407, 0.9427, 1, 2),
+    ("BulbBlue3On", 0.3204, 0.9720, 0, 1),
+]
+
+private let coffeeSteamNormalizedU: CGFloat = 0.1431
+private let coffeeSteamNormalizedV: CGFloat = 0.3242
+private let coffeeSteamAssetName = "coffee_steam"
+private let coffeeSteamWispCount = 3
+/// Display height for steam sprite in scene units (texture is scaled to this, width keeps aspect).
+private let coffeeSteamWispTargetHeight: CGFloat = 70
+
+// MARK: - Debug grid (scene coordinates; design art is 3590×2772)
+
+private let debugGridStep: CGFloat = 50
+private let debugGridMajorStep: CGFloat = 250
+private let debugGridMinorAlpha: CGFloat = 0.16
+private let debugGridMajorAlpha: CGFloat = 0.26
+private let debugGridMinorLineWidth: CGFloat = 1.0
+private let debugGridMajorLineWidth: CGFloat = 2.0
+private let debugGridZPosition: CGFloat = 1000
+
+/// Set to `false` to hide the overlay (50pt minor lines, 250pt majors).
+private let showDebugGrid = true
 
 // MARK: - Scene (gameplay rendering only — all UI is SwiftUI)
 
@@ -64,6 +100,11 @@ final class FirstScene: SKScene {
     private var backgroundNode: SKSpriteNode!
     private var bulbNode: SKSpriteNode!
     private var blueBulbNode: SKSpriteNode!
+    private var extraStringLightBulbNodes: [SKSpriteNode] = []
+    private var coffeeSteamAnchorNode: SKNode!
+    private var coffeeSteamWisps: [SKSpriteNode] = []
+    private var debugGridNode: SKNode?
+    private var debugGridLastBackgroundSize: CGSize = .zero
     private var dustEmitters: [SKEmitterNode] = []
 
     private var pinchGesture: UIPinchGestureRecognizer?
@@ -100,11 +141,26 @@ final class FirstScene: SKScene {
 
         setupBackground()
         setupBulbs()
+        setupExtraStringLightBulbs()
+        setupCoffeeSteam()
+        if showDebugGrid {
+            let grid = SKNode()
+            grid.name = "debugGrid"
+            grid.zPosition = debugGridZPosition
+            grid.isUserInteractionEnabled = false
+            addChild(grid)
+            debugGridNode = grid
+        }
         addChild(worldNode)
         layoutForSize()
         setupDustParticles()
         placeTargetMarker()
         attachGestures(to: view)
+
+        // SpriteView may set scene size after didMove; refresh grid once bounds are known.
+        DispatchQueue.main.async { [weak self] in
+            self?.layoutForSize()
+        }
     }
 
     override func willMove(from view: SKView) {
@@ -175,7 +231,7 @@ final class FirstScene: SKScene {
         yellow.name = "bulbYellow"
         worldNode.addChild(yellow)
         bulbNode = yellow
-        addBulbBlinkLoop(to: yellow)
+        addBulbBlinkLoop(to: yellow, phaseDelay: randomBulbBlinkPhaseDelay())
 
         let blue = SKSpriteNode(imageNamed: "BulbBlueOn")
         blue.anchorPoint = CGPoint(x: 0.5, y: 0.5)
@@ -187,16 +243,124 @@ final class FirstScene: SKScene {
         )
         worldNode.addChild(blue)
         blueBulbNode = blue
-        addBulbBlinkLoop(to: blue)
+        addBulbBlinkLoop(to: blue, phaseDelay: randomBulbBlinkPhaseDelay())
     }
 
-    private func addBulbBlinkLoop(to node: SKSpriteNode) {
-        let halfCycle = 1.5 / 2.0
+    /// Random start phase so bulbs don’t read as a directional wave; new offsets each scene setup.
+    private func randomBulbBlinkPhaseDelay() -> TimeInterval {
+        Double.random(in: 0..<bulbBlinkCycleDuration)
+    }
+
+    /// `bulbDisplaySizeScale` on the texture’s point size so aspect matches the PNG (avoids warping).
+    private func extraStringLightDisplaySize(for node: SKSpriteNode) -> CGSize {
+        let s = bulbDisplaySizeScale
+        guard let tex = node.texture, tex.size().width > 0, tex.size().height > 0 else {
+            return CGSize(width: bulbSpriteWidth * s, height: bulbSpriteHeight * s)
+        }
+        return CGSize(width: tex.size().width * s, height: tex.size().height * s)
+    }
+
+    private func setupExtraStringLightBulbs() {
+        extraStringLightBulbNodes.removeAll()
+        for spec in extraStringLightBulbSpecs {
+            let node = SKSpriteNode(imageNamed: spec.asset)
+            node.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+            node.zPosition = 1
+            node.name = "extraStringLight_\(spec.asset)"
+            node.size = extraStringLightDisplaySize(for: node)
+            worldNode.addChild(node)
+            extraStringLightBulbNodes.append(node)
+            addBulbBlinkLoop(to: node, phaseDelay: randomBulbBlinkPhaseDelay())
+        }
+    }
+
+    private func addBulbBlinkLoop(to node: SKSpriteNode, phaseDelay: TimeInterval) {
+        let halfCycle = bulbBlinkCycleDuration / 2.0
         let fadeOut = SKAction.fadeAlpha(to: 0, duration: halfCycle)
         fadeOut.timingMode = .easeInEaseOut
         let fadeIn = SKAction.fadeAlpha(to: 1, duration: halfCycle)
         fadeIn.timingMode = .easeInEaseOut
-        node.run(SKAction.repeatForever(SKAction.sequence([fadeOut, fadeIn])))
+        let loop = SKAction.repeatForever(SKAction.sequence([fadeOut, fadeIn]))
+        node.run(SKAction.sequence([SKAction.wait(forDuration: phaseDelay), loop]))
+    }
+
+    // MARK: Coffee steam
+
+    private func setupCoffeeSteam() {
+        let anchor = SKNode()
+        anchor.name = "coffeeSteamAnchor"
+        anchor.zPosition = 2
+        worldNode.addChild(anchor)
+        coffeeSteamAnchorNode = anchor
+
+        for i in 0..<coffeeSteamWispCount {
+            let wisp = SKSpriteNode(imageNamed: coffeeSteamAssetName)
+            wisp.anchorPoint = CGPoint(x: 0.5, y: 0.0)
+            wisp.zPosition = CGFloat(i)
+            wisp.name = "coffeeSteamWisp_\(i)"
+            wisp.position = CGPoint(
+                x: CGFloat.random(in: -8...8),
+                y: CGFloat.random(in: -4...4)
+            )
+            anchor.addChild(wisp)
+            coffeeSteamWisps.append(wisp)
+
+            let stagger = Double(i) * 0.55 + Double.random(in: 0...0.35)
+            let loop = makeCoffeeSteamWispLoop(for: wisp)
+            if stagger > 0 {
+                wisp.run(SKAction.sequence([SKAction.wait(forDuration: stagger), loop]))
+            } else {
+                wisp.run(loop)
+            }
+        }
+    }
+
+    /// One cycle: rise + drift, fade 0→0.6→0, scale 0.8→1.2; random duration/drift each cycle.
+    private func makeCoffeeSteamWispLoop(for wisp: SKSpriteNode) -> SKAction {
+        let maxDur: TimeInterval = 3.0
+        let oneCycle = SKAction.sequence([
+            SKAction.run { [weak wisp] in
+                guard let w = wisp else { return }
+                let data = NSMutableDictionary()
+                let dur = Double.random(in: 2...3)
+                let drift = Double.random(in: -10...10)
+                let rise = Double.random(in: 40...60)
+                data["dur"] = dur
+                data["drift"] = drift
+                data["rise"] = rise
+                let bx = Double.random(in: -8...8)
+                let by = Double.random(in: -4...4)
+                data["baseX"] = bx
+                data["baseY"] = by
+                w.userData = data
+                w.position = CGPoint(x: bx, y: by)
+                w.alpha = 0
+                w.setScale(0.8)
+            },
+            SKAction.customAction(withDuration: maxDur) { node, elapsed in
+                guard let w = node as? SKSpriteNode,
+                      let data = w.userData,
+                      let dur = data["dur"] as? Double,
+                      let drift = data["drift"] as? Double,
+                      let rise = data["rise"] as? Double,
+                      let bx = data["baseX"] as? Double,
+                      let by = data["baseY"] as? Double else { return }
+                let t = min(1.0, elapsed / dur)
+                let eased = t * t * (3.0 - 2.0 * t)
+                w.position = CGPoint(
+                    x: CGFloat(bx) + CGFloat(drift) * eased,
+                    y: CGFloat(by) + CGFloat(rise) * eased
+                )
+                let peak: CGFloat = 0.6
+                let te = t * t * (3.0 - 2.0 * t)
+                let a: CGFloat = te < 0.5
+                    ? CGFloat(te / 0.5) * peak
+                    : CGFloat((1.0 - te) / 0.5) * peak
+                w.alpha = a
+                w.setScale(0.8 + 0.4 * CGFloat(t))
+            },
+        ])
+        return SKAction.repeatForever(oneCycle)
     }
 
     // MARK: Gestures
@@ -300,6 +464,14 @@ final class FirstScene: SKScene {
         let y = worldNode.position.y.clamped(to: lowerY...upperY)
 
         worldNode.position = CGPoint(x: x, y: y)
+        syncDebugGridWithWorld()
+    }
+
+    /// Keeps the debug grid locked to the panned/zoomed room (same space as sprite nudges).
+    private func syncDebugGridWithWorld() {
+        guard showDebugGrid, let grid = debugGridNode else { return }
+        grid.position = worldNode.position
+        grid.setScale(worldNode.xScale)
     }
 
     // MARK: Layout
@@ -344,16 +516,124 @@ final class FirstScene: SKScene {
             height: bulbSpriteHeight * bulbDisplaySizeScale
         )
 
+        coffeeSteamAnchorNode.position = positionOnBackground(
+            u: coffeeSteamNormalizedU,
+            v: coffeeSteamNormalizedV,
+            nudgeX: 0,
+            nudgeY: 0
+        )
+        let steamTex = SKTexture(imageNamed: coffeeSteamAssetName)
+        if steamTex.size().height > 0, !coffeeSteamWisps.isEmpty {
+            let sh = coffeeSteamWispTargetHeight
+            let sw = sh * (steamTex.size().width / steamTex.size().height)
+            let steamSize = CGSize(width: sw, height: sh)
+            for w in coffeeSteamWisps {
+                w.size = steamSize
+            }
+        }
+
         worldNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
         zoomScale = zoomScale.clamped(to: minZoom...maxZoom)
         worldNode.setScale(zoomScale)
         clampWorldPosition()
+
+        layoutExtraStringLightBulbs()
 
         if dustEmitters.isEmpty {
             setupDustParticles()
         } else {
             repositionDustEmitters()
         }
+
+        rebuildDebugGridIfNeeded()
+    }
+
+    private func layoutExtraStringLightBulbs() {
+        guard extraStringLightBulbNodes.count == extraStringLightBulbSpecs.count else { return }
+        let z = worldNode.xScale
+        guard z != 0 else { return }
+        for i in extraStringLightBulbSpecs.indices {
+            let spec = extraStringLightBulbSpecs[i]
+            let sceneX = size.width * spec.u
+            let sceneY = size.height * spec.v
+            extraStringLightBulbNodes[i].position = CGPoint(
+                x: (sceneX - worldNode.position.x) / z + extraStringLightBulbNudgeX + spec.dx,
+                y: (sceneY - worldNode.position.y) / z + extraStringLightBulbNudgeY + spec.dy
+            )
+            extraStringLightBulbNodes[i].size = extraStringLightDisplaySize(for: extraStringLightBulbNodes[i])
+        }
+    }
+
+    private func rebuildDebugGridIfNeeded() {
+        guard showDebugGrid,
+              let grid = debugGridNode,
+              let bg = backgroundNode,
+              bg.size.width > 1,
+              bg.size.height > 1 else {
+            debugGridNode?.removeAllChildren()
+            debugGridLastBackgroundSize = .zero
+            return
+        }
+
+        let bgSize = bg.size
+        let halfW = bgSize.width / 2
+        let halfH = bgSize.height / 2
+        let step = debugGridStep
+        let majorEvery = Int(debugGridMajorStep / debugGridStep)
+
+        let sizeChanged =
+            abs(bgSize.width - debugGridLastBackgroundSize.width) > 0.5
+            || abs(bgSize.height - debugGridLastBackgroundSize.height) > 0.5
+
+        if sizeChanged {
+            debugGridLastBackgroundSize = bgSize
+            grid.removeAllChildren()
+
+            func line(from: CGPoint, to: CGPoint, alpha: CGFloat, width: CGFloat) {
+                let path = CGMutablePath()
+                path.move(to: from)
+                path.addLine(to: to)
+                let shape = SKShapeNode(path: path)
+                shape.strokeColor = SKColor.white.withAlphaComponent(alpha)
+                shape.lineWidth = width
+                shape.lineCap = .square
+                shape.fillColor = .clear
+                shape.isAntialiased = true
+                shape.isUserInteractionEnabled = false
+                grid.addChild(shape)
+            }
+
+            // Background-local coords: center = (0,0), same as bulb / nudge space.
+            var xi = Int(floor((-halfW) / step))
+            let xMax = Int(ceil(halfW / step))
+            while xi <= xMax {
+                let x = CGFloat(xi) * step
+                let major = xi % majorEvery == 0
+                line(
+                    from: CGPoint(x: x, y: -halfH),
+                    to: CGPoint(x: x, y: halfH),
+                    alpha: major ? debugGridMajorAlpha : debugGridMinorAlpha,
+                    width: major ? debugGridMajorLineWidth : debugGridMinorLineWidth
+                )
+                xi += 1
+            }
+
+            var yi = Int(floor((-halfH) / step))
+            let yMax = Int(ceil(halfH / step))
+            while yi <= yMax {
+                let y = CGFloat(yi) * step
+                let major = yi % majorEvery == 0
+                line(
+                    from: CGPoint(x: -halfW, y: y),
+                    to: CGPoint(x: halfW, y: y),
+                    alpha: major ? debugGridMajorAlpha : debugGridMinorAlpha,
+                    width: major ? debugGridMajorLineWidth : debugGridMinorLineWidth
+                )
+                yi += 1
+            }
+        }
+
+        syncDebugGridWithWorld()
     }
 
     // MARK: Debug target marker
