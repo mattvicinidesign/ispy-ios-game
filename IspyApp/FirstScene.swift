@@ -34,12 +34,16 @@ private let level1Targets: [Level1Target] = [
     Level1Target(name: "Rug",     icon: "rectangle.fill",      nRect: CGRect(x: 0.20, y: 0.02, width: 0.50, height: 0.10)),
 ]
 
+private let bulbNormalizedU: CGFloat = 0.1027
+private let bulbNormalizedV: CGFloat = 0.9189
+
 // MARK: - Scene (gameplay rendering only — all UI is SwiftUI)
 
 final class FirstScene: SKScene {
 
     private let worldNode = SKNode()
     private var backgroundNode: SKSpriteNode!
+    private var bulbNode: SKSpriteNode!
     private var dustEmitters: [SKEmitterNode] = []
 
     private var pinchGesture: UIPinchGestureRecognizer?
@@ -75,6 +79,7 @@ final class FirstScene: SKScene {
         gameState.isComplete = false
 
         setupBackground()
+        setupBulb()
         addChild(worldNode)
         layoutForSize()
         setupDustParticles()
@@ -105,8 +110,26 @@ final class FirstScene: SKScene {
 
     // MARK: Background
 
+    /// Aspect-fill: covers `size` while preserving texture aspect ratio.
+    private func backgroundDisplaySize(texturePixelSize: CGSize) -> CGSize {
+        guard texturePixelSize.width > 0,
+              texturePixelSize.height > 0,
+              size.width > 0,
+              size.height > 0 else {
+            return texturePixelSize
+        }
+        let scale = max(
+            size.width / texturePixelSize.width,
+            size.height / texturePixelSize.height
+        )
+        return CGSize(
+            width: texturePixelSize.width * scale,
+            height: texturePixelSize.height * scale
+        )
+    }
+
     private func setupBackground() {
-        let bg = SKSpriteNode(imageNamed: "scene_01")
+        let bg = SKSpriteNode(imageNamed: "ComputerSetup")
         bg.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         bg.zPosition = 0
         bg.name = "background"
@@ -119,13 +142,26 @@ final class FirstScene: SKScene {
             return
         }
 
-        let aspect = texture.size().width / texture.size().height
-        let h = size.height
-        let w = h * aspect
-        bg.size = CGSize(width: w, height: h)
+        bg.size = backgroundDisplaySize(texturePixelSize: texture.size())
 
         worldNode.addChild(bg)
         backgroundNode = bg
+    }
+
+    private func setupBulb() {
+        let bulb = SKSpriteNode(imageNamed: "BulbYellowOn")
+        bulb.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        bulb.zPosition = 1
+        bulb.name = "bulb"
+        worldNode.addChild(bulb)
+        bulbNode = bulb
+
+        let halfCycle = 1.5 / 2.0
+        let fadeOut = SKAction.fadeAlpha(to: 0, duration: halfCycle)
+        fadeOut.timingMode = .easeInEaseOut
+        let fadeIn = SKAction.fadeAlpha(to: 1, duration: halfCycle)
+        fadeIn.timingMode = .easeInEaseOut
+        bulb.run(SKAction.repeatForever(SKAction.sequence([fadeOut, fadeIn])))
     }
 
     // MARK: Gestures
@@ -237,13 +273,18 @@ final class FirstScene: SKScene {
         guard let bg = backgroundNode else { return }
 
         if let texture = bg.texture, texture.size().width > 0, texture.size().height > 0 {
-            let aspect = texture.size().width / texture.size().height
-            let h = size.height
-            let w = h * aspect
-            bg.size = CGSize(width: w, height: h)
+            bg.size = backgroundDisplaySize(texturePixelSize: texture.size())
         }
 
         bg.position = .zero
+
+        // Scene space: (width * u, height * v); worldNode is centered, so use offset from center
+        // so the bulb tracks pan/zoom with the background.
+        bulbNode.position = CGPoint(
+            x: size.width * (bulbNormalizedU - 0.5),
+            y: size.height * (bulbNormalizedV - 0.5)
+        )
+
         worldNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
         zoomScale = zoomScale.clamped(to: minZoom...maxZoom)
         worldNode.setScale(zoomScale)
