@@ -22,16 +22,8 @@ private struct Level1Target {
 
 private let level1Name = "The Morning Room"
 private let level1Targets: [Level1Target] = [
-    Level1Target(name: "Sofa",    icon: "sofa.fill",           nRect: CGRect(x: 0.06, y: 0.14, width: 0.26, height: 0.34)),
-    Level1Target(name: "Clock",   icon: "clock.fill",          nRect: CGRect(x: 0.38, y: 0.52, width: 0.18, height: 0.22)),
-    Level1Target(name: "Plant",   icon: "leaf.fill",           nRect: CGRect(x: 0.62, y: 0.20, width: 0.22, height: 0.30)),
-    Level1Target(name: "Book",    icon: "book.fill",           nRect: CGRect(x: 0.72, y: 0.55, width: 0.20, height: 0.18)),
-    Level1Target(name: "Lamp",    icon: "lamp.desk.fill",      nRect: CGRect(x: 0.30, y: 0.70, width: 0.12, height: 0.18)),
-    Level1Target(name: "Vase",    icon: "vase.2.fill",         nRect: CGRect(x: 0.85, y: 0.30, width: 0.10, height: 0.20)),
-    Level1Target(name: "Frame",   icon: "photo.artframe",      nRect: CGRect(x: 0.15, y: 0.65, width: 0.14, height: 0.18)),
-    Level1Target(name: "Cup",     icon: "cup.and.saucer.fill", nRect: CGRect(x: 0.50, y: 0.10, width: 0.10, height: 0.12)),
-    Level1Target(name: "Candle",  icon: "flame.fill",          nRect: CGRect(x: 0.42, y: 0.38, width: 0.08, height: 0.14)),
-    Level1Target(name: "Rug",     icon: "rectangle.fill",      nRect: CGRect(x: 0.20, y: 0.02, width: 0.50, height: 0.10)),
+    Level1Target(name: "Ring", icon: "circle.circle", nRect: CGRect(x: 0.1869, y: 0.9397, width: 0.04, height: 0.04)),
+    Level1Target(name: "Gum", icon: "square.fill", nRect: CGRect(x: 0.1126, y: 0.2717, width: 0.04, height: 0.04)),
 ]
 
 // MARK: - ComputerSetup overlays (bulbs, etc.)
@@ -79,6 +71,66 @@ private let coffeeSteamWispCount = 3
 /// Display height for steam sprite in scene units (texture is scaled to this, width keeps aspect).
 private let coffeeSteamWispTargetHeight: CGFloat = 70
 
+/// Baked frog plush — closed-eye overlay (`PlushFrogEyesClosed.png` is 196×148).
+private let plushFrogEyesClosedNormalizedU: CGFloat = 0.7946
+private let plushFrogEyesClosedNormalizedV: CGFloat = 0.7485
+private let plushFrogEyesClosedSpriteWidth: CGFloat = 196
+private let plushFrogEyesClosedSpriteHeight: CGFloat = 148
+private let plushFrogEyesClosedAssetName = "PlushFrogEyesClosed"
+
+/// Keyboard overlay (`LEDKeyboardColorShift`) — static placement for alignment; nudge in world points after normalized u/v.
+private let ledKeyboardColorShiftNormalizedU: CGFloat = 0.4883
+private let ledKeyboardColorShiftNormalizedV: CGFloat = 0.2001
+private let ledKeyboardColorShiftNudgeX: CGFloat = 4
+private let ledKeyboardColorShiftNudgeY: CGFloat = -5
+private let ledKeyboardColorShiftSpriteWidth: CGFloat = 1469
+private let ledKeyboardColorShiftSpriteHeight: CGFloat = 290
+private let ledKeyboardColorShiftAssetName = "LEDKeyboardColorShift"
+/// Applied after texture-accurate overlay sizing (+10%, −2% trim, +3% size tweak vs base overlay scale; aspect preserved).
+private let ledKeyboardColorShiftSizeMultiplier: CGFloat = 1.1 * 0.98 * 1.03
+/// Full cycle every 56s: idle, then alpha 0→1 + drift right, then 1→0 + drift back (shimmer passes L→R).
+private let ledKeyboardColorShiftShimmerCyclePeriod: TimeInterval = 56
+private let ledKeyboardColorShiftShimmerSweepDuration: TimeInterval = 14
+private let ledKeyboardColorShiftShimmerPeakAlpha: CGFloat = 1
+private let ledKeyboardColorShiftShimmerDriftPoints: CGFloat = 14
+
+/// Code-editor style cursor (`CursorBlink.png` is 10×29); same `bulbDisplaySizeScale` sizing as yellow bulb, texture-sized for aspect.
+private let cursorBlinkNormalizedU: CGFloat = 0.4905
+private let cursorBlinkNormalizedV: CGFloat = 0.5955
+private let cursorBlinkSpriteWidth: CGFloat = 10
+private let cursorBlinkSpriteHeight: CGFloat = 29
+private let cursorBlinkAssetName = "CursorBlink"
+
+/// Invisible-hit overlay for baked ring (`Ring.png` is 97×86).
+private let findableRingNormalizedU: CGFloat = 0.2069
+private let findableRingNormalizedV: CGFloat = 0.9597
+/// World-space offset after normalized placement (+right, +up); idempotent each `layoutForSize` (base +3/−3 plus fine +1/−1 — no runtime accumulation).
+private let findableRingNudgeX: CGFloat = 4
+private let findableRingNudgeY: CGFloat = -4
+private let findableRingSpriteWidth: CGFloat = 97
+private let findableRingSpriteHeight: CGFloat = 86
+private let findableRingAssetName = "Ring"
+private let findableRingNodeName = "findable_ring"
+private let findableRingUserDataId = "ring"
+private let findableRingHitAlpha: CGFloat = 0.001
+
+/// Invisible-hit overlay for baked gum (`Gum.png` is 152×80).
+private let findableGumNormalizedU: CGFloat = 0.1326
+private let findableGumNormalizedV: CGFloat = 0.2917
+private let findableGumSpriteWidth: CGFloat = 152
+private let findableGumSpriteHeight: CGFloat = 80
+private let findableGumAssetName = "Gum"
+private let findableGumNodeName = "findable_gum"
+private let findableGumUserDataId = "gum"
+private let findableGumHitAlpha: CGFloat = 0.001
+
+#if DEBUG
+/// **Alignment helper:** set to `false` when done; restore each findable sprite `alpha` to **0.001** (`findableRingHitAlpha` / `findableGumHitAlpha`) and `colorBlendFactor` to **0**.
+private let findableDebugShowForAlignment = true
+private let findableDebugAlignmentAlpha: CGFloat = 0.6
+private let findableDebugAlignmentColorBlend: CGFloat = 0.3
+#endif
+
 // MARK: - Debug grid (scene coordinates; design art is 3590×2772)
 
 private let debugGridStep: CGFloat = 50
@@ -103,6 +155,11 @@ final class FirstScene: SKScene {
     private var extraStringLightBulbNodes: [SKSpriteNode] = []
     private var coffeeSteamAnchorNode: SKNode!
     private var coffeeSteamWisps: [SKSpriteNode] = []
+    private var plushFrogEyesClosedNode: SKSpriteNode!
+    private var ledKeyboardColorShiftNode: SKSpriteNode!
+    private var cursorBlinkNode: SKSpriteNode!
+    private var findableRingNode: SKSpriteNode!
+    private var findableGumNode: SKSpriteNode!
     private var debugGridNode: SKNode?
     private var debugGridLastBackgroundSize: CGSize = .zero
     private var dustEmitters: [SKEmitterNode] = []
@@ -126,6 +183,14 @@ final class FirstScene: SKScene {
     @available(*, unavailable)
     required init?(coder aDecoder: NSCoder) { fatalError() }
 
+    private var findableRingLevelIndex: Int? {
+        level1Targets.firstIndex { $0.name == "Ring" }
+    }
+
+    private var findableGumLevelIndex: Int? {
+        level1Targets.firstIndex { $0.name == "Gum" }
+    }
+
     // MARK: Lifecycle
 
     override func didMove(to view: SKView) {
@@ -141,6 +206,11 @@ final class FirstScene: SKScene {
 
         setupBackground()
         setupBulbs()
+        setupPlushFrogEyesClosedBlinkOverlay()
+        setupLEDKeyboardColorShiftOverlay()
+        setupCursorBlinkOverlay()
+        setupFindableRingOverlay()
+        setupFindableGumOverlay()
         setupExtraStringLightBulbs()
         setupCoffeeSteam()
         if showDebugGrid {
@@ -154,13 +224,14 @@ final class FirstScene: SKScene {
         addChild(worldNode)
         layoutForSize()
         setupDustParticles()
-        placeTargetMarker()
         attachGestures(to: view)
 
         // SpriteView may set scene size after didMove; refresh grid once bounds are known.
         DispatchQueue.main.async { [weak self] in
             self?.layoutForSize()
         }
+
+        lastDebugFindsResetCount = gameState.debugLevelFindsResetCount
     }
 
     override func willMove(from view: SKView) {
@@ -174,8 +245,14 @@ final class FirstScene: SKScene {
     }
 
     private var pendingHintConsumed = false
+    private var lastDebugFindsResetCount = 0
 
     override func update(_ currentTime: TimeInterval) {
+        if gameState.debugLevelFindsResetCount != lastDebugFindsResetCount {
+            lastDebugFindsResetCount = gameState.debugLevelFindsResetCount
+            applyDebugFindsResetSideEffects()
+        }
+
         if let idx = gameState.hintTargetIndex, !pendingHintConsumed {
             pendingHintConsumed = true
             showHint(for: idx)
@@ -246,18 +323,221 @@ final class FirstScene: SKScene {
         addBulbBlinkLoop(to: blue, phaseDelay: randomBulbBlinkPhaseDelay())
     }
 
+    private func setupPlushFrogEyesClosedBlinkOverlay() {
+        let node = SKSpriteNode(imageNamed: plushFrogEyesClosedAssetName)
+        node.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        node.zPosition = 1
+        node.alpha = 0
+        node.name = "plushFrogEyesClosedBlink"
+        worldNode.addChild(node)
+        plushFrogEyesClosedNode = node
+        addPlushFrogBlinkLoop(to: node)
+    }
+
+    /// Randomized blink overlay; chained `SKAction.sequence` per cycle so wait durations are re-rolled each time (`repeatForever` fixes child durations at creation).
+    private func addPlushFrogBlinkLoop(to node: SKSpriteNode) {
+        weak var weakNode: SKSpriteNode? = node
+        func runCycle() {
+            guard let n = weakNode else { return }
+            let gap = Double.random(in: 2...5)
+            let closedHold = Double.random(in: 0.08...0.12)
+            let seq = SKAction.sequence([
+                SKAction.wait(forDuration: gap),
+                SKAction.fadeAlpha(to: 1, duration: 0),
+                SKAction.wait(forDuration: closedHold),
+                SKAction.fadeAlpha(to: 0, duration: 0),
+                SKAction.run { runCycle() },
+            ])
+            n.run(seq)
+        }
+        runCycle()
+    }
+
+    private func setupLEDKeyboardColorShiftOverlay() {
+        let node = SKSpriteNode(imageNamed: ledKeyboardColorShiftAssetName)
+        node.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        node.zPosition = 1
+        node.alpha = 0
+        node.name = "ledKeyboardColorShift"
+        worldNode.addChild(node)
+        ledKeyboardColorShiftNode = node
+        addLEDKeyboardColorShiftShimmerLoop(to: node)
+    }
+
+    /// Left→right shimmer: fade 0→peak while drifting +X, then fade peak→0 while returning; repeats every `ledKeyboardColorShiftShimmerCyclePeriod`.
+    private func addLEDKeyboardColorShiftShimmerLoop(to node: SKSpriteNode) {
+        let sweep = ledKeyboardColorShiftShimmerSweepDuration
+        let peak = ledKeyboardColorShiftShimmerPeakAlpha
+        let period = ledKeyboardColorShiftShimmerCyclePeriod
+        let dx = ledKeyboardColorShiftShimmerDriftPoints
+        let idle = max(0, period - 2 * sweep)
+
+        let fadeUp = SKAction.fadeAlpha(to: peak, duration: sweep)
+        fadeUp.timingMode = .easeInEaseOut
+        let moveRight = SKAction.moveBy(x: dx, y: 0, duration: sweep)
+        moveRight.timingMode = .easeInEaseOut
+        let sweepOut = SKAction.group([fadeUp, moveRight])
+
+        let fadeDown = SKAction.fadeAlpha(to: 0, duration: sweep)
+        fadeDown.timingMode = .easeInEaseOut
+        let moveBack = SKAction.moveBy(x: -dx, y: 0, duration: sweep)
+        moveBack.timingMode = .easeInEaseOut
+        let sweepBack = SKAction.group([fadeDown, moveBack])
+
+        let loop = SKAction.repeatForever(
+            SKAction.sequence([
+                SKAction.wait(forDuration: idle),
+                sweepOut,
+                sweepBack,
+            ])
+        )
+        node.run(loop)
+    }
+
+    private func setupCursorBlinkOverlay() {
+        let node = SKSpriteNode(imageNamed: cursorBlinkAssetName)
+        node.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        node.zPosition = 1
+        node.alpha = 1
+        node.name = "cursorBlink"
+        worldNode.addChild(node)
+        cursorBlinkNode = node
+        addCursorBlinkLoop(to: node)
+    }
+
+    /// Steady editor-style blink: visible 0.5s, fade out 0.1s, hidden 0.5s, fade in 0.1s (repeat).
+    private func addCursorBlinkLoop(to node: SKSpriteNode) {
+        let holdVisible: TimeInterval = 0.5
+        let fade: TimeInterval = 0.1
+        let holdHidden: TimeInterval = 0.5
+        let loop = SKAction.repeatForever(
+            SKAction.sequence([
+                SKAction.wait(forDuration: holdVisible),
+                SKAction.fadeAlpha(to: 0, duration: fade),
+                SKAction.wait(forDuration: holdHidden),
+                SKAction.fadeAlpha(to: 1, duration: fade),
+            ])
+        )
+        node.run(loop)
+    }
+
+    private func setupFindableRingOverlay() {
+        let node = SKSpriteNode(imageNamed: findableRingAssetName)
+        node.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        node.zPosition = 1
+        node.alpha = findableRingHitAlpha
+        node.name = findableRingNodeName
+        let data = NSMutableDictionary()
+        data["id"] = findableRingUserDataId
+        node.userData = data
+        worldNode.addChild(node)
+        findableRingNode = node
+    }
+
+    private func setupFindableGumOverlay() {
+        let node = SKSpriteNode(imageNamed: findableGumAssetName)
+        node.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        node.zPosition = 1
+        node.alpha = findableGumHitAlpha
+        node.name = findableGumNodeName
+        let data = NSMutableDictionary()
+        data["id"] = findableGumUserDataId
+        node.userData = data
+        worldNode.addChild(node)
+        findableGumNode = node
+    }
+
+    private func applyDebugFindsResetSideEffects() {
+        findableRingNode.removeAction(forKey: "ringFeedback")
+        findableRingNode.setScale(1.0)
+        findableGumNode.removeAction(forKey: "gumFeedback")
+        findableGumNode.setScale(1.0)
+        #if DEBUG
+        if findableDebugShowForAlignment {
+            applyFindableDebugAlignmentVisibilityIfEnabled()
+            findableRingNode.alpha = findableRingHitAlpha
+            findableRingNode.colorBlendFactor = 0
+            findableRingNode.color = .white
+            return
+        }
+        findableRingNode.alpha = findableRingHitAlpha
+        findableGumNode.alpha = findableGumHitAlpha
+        findableRingNode.colorBlendFactor = 0
+        findableGumNode.colorBlendFactor = 0
+        #else
+        findableRingNode.alpha = findableRingHitAlpha
+        findableGumNode.alpha = findableGumHitAlpha
+        #endif
+    }
+
+    /// Walks `worldNode` subtree; invokes `body` for each `SKSpriteNode` whose name begins with `findable_`.
+    private func visitFindableOverlaySprites(in root: SKNode, body: (SKSpriteNode) -> Void) {
+        for child in root.children {
+            if let name = child.name, name.hasPrefix("findable_"), let sprite = child as? SKSpriteNode {
+                body(sprite)
+            }
+            visitFindableOverlaySprites(in: child, body: body)
+        }
+    }
+
+    private func applyFindableDebugAlignmentVisibilityIfEnabled() {
+        #if DEBUG
+        guard findableDebugShowForAlignment else { return }
+        visitFindableOverlaySprites(in: worldNode) { sprite in
+            // Ring stays a normal findable (near-invisible hit target); alignment overlay applies to other `findable_*` nodes only (e.g. gum).
+            guard sprite.name != findableRingNodeName else { return }
+            sprite.alpha = findableDebugAlignmentAlpha
+            sprite.color = SKColor(red: 0.25, green: 0.85, blue: 1.0, alpha: 1.0)
+            sprite.colorBlendFactor = findableDebugAlignmentColorBlend
+        }
+        #endif
+    }
+
+    /// Ring stays visually hidden: no alpha / fade — only a brief uniform scale pulse (aspect unchanged).
+    private func runFindableRingCorrectFeedback(on node: SKSpriteNode) {
+        node.removeAction(forKey: "ringFeedback")
+        node.alpha = findableRingHitAlpha
+        let pulse = SKAction.sequence([
+            SKAction.scale(to: 1.08, duration: 0.075),
+            SKAction.scale(to: 1.0, duration: 0.075),
+        ])
+        node.run(pulse, withKey: "ringFeedback")
+    }
+
+    private func runFindableGumCorrectFeedback(on node: SKSpriteNode) {
+        #if DEBUG
+        if findableDebugShowForAlignment { return }
+        #endif
+        node.removeAction(forKey: "gumFeedback")
+        let scalePulse = SKAction.sequence([
+            SKAction.scale(to: 1.1, duration: 0.1),
+            SKAction.scale(to: 1.0, duration: 0.1),
+        ])
+        let alphaFlash = SKAction.sequence([
+            SKAction.fadeAlpha(to: 1, duration: 0.05),
+            SKAction.wait(forDuration: 0.1),
+            SKAction.fadeAlpha(to: findableGumHitAlpha, duration: 0.05),
+        ])
+        let feedback = SKAction.group([scalePulse, alphaFlash])
+        node.run(feedback, withKey: "gumFeedback")
+    }
+
     /// Random start phase so bulbs don’t read as a directional wave; new offsets each scene setup.
     private func randomBulbBlinkPhaseDelay() -> TimeInterval {
         Double.random(in: 0..<bulbBlinkCycleDuration)
     }
 
-    /// `bulbDisplaySizeScale` on the texture’s point size so aspect matches the PNG (avoids warping).
-    private func extraStringLightDisplaySize(for node: SKSpriteNode) -> CGSize {
+    /// Uniform `bulbDisplaySizeScale` on the loaded texture’s point size — always preserves asset aspect ratio (no stretching).
+    private func overlaySpriteDisplaySize(for node: SKSpriteNode, fallbackWidth: CGFloat, fallbackHeight: CGFloat) -> CGSize {
         let s = bulbDisplaySizeScale
         guard let tex = node.texture, tex.size().width > 0, tex.size().height > 0 else {
-            return CGSize(width: bulbSpriteWidth * s, height: bulbSpriteHeight * s)
+            return CGSize(width: fallbackWidth * s, height: fallbackHeight * s)
         }
         return CGSize(width: tex.size().width * s, height: tex.size().height * s)
+    }
+
+    private func extraStringLightDisplaySize(for node: SKSpriteNode) -> CGSize {
+        overlaySpriteDisplaySize(for: node, fallbackWidth: bulbSpriteWidth, fallbackHeight: bulbSpriteHeight)
     }
 
     private func setupExtraStringLightBulbs() {
@@ -516,6 +796,71 @@ final class FirstScene: SKScene {
             height: bulbSpriteHeight * bulbDisplaySizeScale
         )
 
+        plushFrogEyesClosedNode.position = positionOnBackground(
+            u: plushFrogEyesClosedNormalizedU,
+            v: plushFrogEyesClosedNormalizedV,
+            nudgeX: 0,
+            nudgeY: 0
+        )
+        plushFrogEyesClosedNode.size = overlaySpriteDisplaySize(
+            for: plushFrogEyesClosedNode,
+            fallbackWidth: plushFrogEyesClosedSpriteWidth,
+            fallbackHeight: plushFrogEyesClosedSpriteHeight
+        )
+
+        ledKeyboardColorShiftNode.position = positionOnBackground(
+            u: ledKeyboardColorShiftNormalizedU,
+            v: ledKeyboardColorShiftNormalizedV,
+            nudgeX: ledKeyboardColorShiftNudgeX,
+            nudgeY: ledKeyboardColorShiftNudgeY
+        )
+        let kbBase = overlaySpriteDisplaySize(
+            for: ledKeyboardColorShiftNode,
+            fallbackWidth: ledKeyboardColorShiftSpriteWidth,
+            fallbackHeight: ledKeyboardColorShiftSpriteHeight
+        )
+        let kbMul = ledKeyboardColorShiftSizeMultiplier
+        ledKeyboardColorShiftNode.size = CGSize(
+            width: kbBase.width * kbMul,
+            height: kbBase.height * kbMul
+        )
+
+        cursorBlinkNode.position = positionOnBackground(
+            u: cursorBlinkNormalizedU,
+            v: cursorBlinkNormalizedV,
+            nudgeX: 0,
+            nudgeY: 0
+        )
+        cursorBlinkNode.size = overlaySpriteDisplaySize(
+            for: cursorBlinkNode,
+            fallbackWidth: cursorBlinkSpriteWidth,
+            fallbackHeight: cursorBlinkSpriteHeight
+        )
+
+        findableRingNode.position = positionOnBackground(
+            u: findableRingNormalizedU,
+            v: findableRingNormalizedV,
+            nudgeX: findableRingNudgeX,
+            nudgeY: findableRingNudgeY
+        )
+        findableRingNode.size = overlaySpriteDisplaySize(
+            for: findableRingNode,
+            fallbackWidth: findableRingSpriteWidth,
+            fallbackHeight: findableRingSpriteHeight
+        )
+
+        findableGumNode.position = positionOnBackground(
+            u: findableGumNormalizedU,
+            v: findableGumNormalizedV,
+            nudgeX: 0,
+            nudgeY: 0
+        )
+        findableGumNode.size = overlaySpriteDisplaySize(
+            for: findableGumNode,
+            fallbackWidth: findableGumSpriteWidth,
+            fallbackHeight: findableGumSpriteHeight
+        )
+
         coffeeSteamAnchorNode.position = positionOnBackground(
             u: coffeeSteamNormalizedU,
             v: coffeeSteamNormalizedV,
@@ -546,6 +891,8 @@ final class FirstScene: SKScene {
         }
 
         rebuildDebugGridIfNeeded()
+
+        applyFindableDebugAlignmentVisibilityIfEnabled()
     }
 
     private func layoutExtraStringLightBulbs() {
@@ -636,20 +983,6 @@ final class FirstScene: SKScene {
         syncDebugGridWithWorld()
     }
 
-    // MARK: Debug target marker
-
-    private func placeTargetMarker() {
-        let marker = SKSpriteNode(imageNamed: "target")
-        let scenePoint = CGPoint(x: 309.3, y: 458.0)
-        marker.position = CGPoint(
-            x: (scenePoint.x - worldNode.position.x) / worldNode.xScale,
-            y: (scenePoint.y - worldNode.position.y) / worldNode.yScale
-        )
-        marker.size = CGSize(width: 100, height: 100)
-        marker.zPosition = 10
-        worldNode.addChild(marker)
-    }
-
     // MARK: Debug tap coordinates
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -677,6 +1010,39 @@ final class FirstScene: SKScene {
               texture.size().height > 0 else { return }
 
         let p = touch.location(in: self)
+
+        if let ringIdx = findableRingLevelIndex,
+           nodes(at: p).contains(where: { $0.name == findableRingNodeName }) {
+            if gameState.foundFlags[ringIdx] { return }
+            gameState.foundFlags[ringIdx] = true
+            gameState.awardFind()
+            if gameState.hintTargetIndex == ringIdx { gameState.hintTargetIndex = nil }
+            gameState.updateHUDItemFound(id: findableRingUserDataId)
+            runFindableRingCorrectFeedback(on: findableRingNode)
+            correctRipple(at: p)
+            if !gameState.foundFlags.contains(false) {
+                gameState.isComplete = true
+                gameState.awardLevelComplete()
+            }
+            return
+        }
+
+        if let gumIdx = findableGumLevelIndex,
+           nodes(at: p).contains(where: { $0.name == findableGumNodeName }) {
+            if gameState.foundFlags[gumIdx] { return }
+            gameState.foundFlags[gumIdx] = true
+            gameState.awardFind()
+            if gameState.hintTargetIndex == gumIdx { gameState.hintTargetIndex = nil }
+            gameState.updateHUDItemFound(id: findableGumUserDataId)
+            runFindableGumCorrectFeedback(on: findableGumNode)
+            correctRipple(at: p)
+            if !gameState.foundFlags.contains(false) {
+                gameState.isComplete = true
+                gameState.awardLevelComplete()
+            }
+            return
+        }
+
         let local = touch.location(in: bg)
         let w = bg.size.width
         let h = bg.size.height

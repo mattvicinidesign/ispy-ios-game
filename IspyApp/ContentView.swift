@@ -45,6 +45,9 @@ final class GameState {
     // Hint — index of the item to highlight, nil when idle
     var hintTargetIndex: Int?
 
+    /// Bumped when debug reset runs so `FirstScene` can sync sprite-only findables.
+    var debugLevelFindsResetCount = 0
+
     var canAffordHint: Bool {
         coins >= Self.hintCost && !isComplete && foundFlags.contains(false)
     }
@@ -64,6 +67,23 @@ final class GameState {
         coins -= Self.hintCost
         hintTargetIndex = target
     }
+
+    /// Called after the scene marks an item found; reserved for HUD-side effects (`foundFlags` is already updated).
+    func updateHUDItemFound(id: String) {
+        _ = id
+    }
+
+    #if DEBUG
+    /// Clears find state for the current level (coins unchanged). Signals the scene to reset invisible hit overlays.
+    func resetLevelFindsForDebug() {
+        let n = items.count
+        guard n > 0 else { return }
+        foundFlags = Array(repeating: false, count: n)
+        isComplete = false
+        hintTargetIndex = nil
+        debugLevelFindsResetCount += 1
+    }
+    #endif
 }
 
 enum ActiveScreen {
@@ -222,6 +242,19 @@ private struct LevelOverlay: View {
                     .padding(.vertical, scale.value(8))
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: scale.value(10)))
             }
+            #if DEBUG
+            Button {
+                state.resetLevelFindsForDebug()
+            } label: {
+                Text("Reset finds")
+                    .font(.custom("AvenirNext-DemiBold", size: scale.value(13)))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, scale.value(10))
+                    .padding(.vertical, scale.value(8))
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: scale.value(10)))
+            }
+            .buttonStyle(.plain)
+            #endif
             Spacer()
             CoinPill(coins: state.coins)
             SettingsButton(state: state)
