@@ -117,6 +117,8 @@ private let findableRingHitAlpha: CGFloat = 0.001
 /// Invisible-hit overlay for baked gum (`Gum.png` is 152×80).
 private let findableGumNormalizedU: CGFloat = 0.1326
 private let findableGumNormalizedV: CGFloat = 0.2917
+private let findableGumNudgeX: CGFloat = 1
+private let findableGumNudgeY: CGFloat = -3
 private let findableGumSpriteWidth: CGFloat = 152
 private let findableGumSpriteHeight: CGFloat = 80
 private let findableGumAssetName = "Gum"
@@ -173,6 +175,12 @@ final class FirstScene: SKScene {
     private let minZoom: CGFloat = 1
     private let maxZoom: CGFloat = 4
 
+    /// After the first anchored layout (center or restored camera), later `layoutForSize` passes only clamp scale/position — avoids wiping pan/zoom on the async layout pass.
+    private var didApplyCameraAnchorThisScene = false
+
+    /// One-time content setup per scene instance (`didMove` can run more than once on the same scene; avoids duplicate `addChild` / re-init). Resets naturally on a new `FirstScene` (e.g. debug reload).
+    private var hasSetupScene = false
+
     private let gameState: GameState
 
     init(gameState: GameState) {
@@ -197,33 +205,46 @@ final class FirstScene: SKScene {
         backgroundColor = SKColor(white: 0.08, alpha: 1.0)
         anchorPoint = .zero
 
-        gameState.levelName = level1Name
-        gameState.items = level1Targets.enumerated().map { i, t in
-            FindableItem(id: i, name: t.name, icon: t.icon)
-        }
-        gameState.foundFlags = Array(repeating: false, count: level1Targets.count)
-        gameState.isComplete = false
+        if !hasSetupScene {
+            hasSetupScene = true
 
-        setupBackground()
-        setupBulbs()
-        setupPlushFrogEyesClosedBlinkOverlay()
-        setupLEDKeyboardColorShiftOverlay()
-        setupCursorBlinkOverlay()
-        setupFindableRingOverlay()
-        setupFindableGumOverlay()
-        setupExtraStringLightBulbs()
-        setupCoffeeSteam()
-        if showDebugGrid {
-            let grid = SKNode()
-            grid.name = "debugGrid"
-            grid.zPosition = debugGridZPosition
-            grid.isUserInteractionEnabled = false
-            addChild(grid)
-            debugGridNode = grid
+            gameState.levelName = level1Name
+            gameState.items = level1Targets.enumerated().map { i, t in
+                FindableItem(id: i, name: t.name, icon: t.icon)
+            }
+            gameState.foundFlags = Array(repeating: false, count: level1Targets.count)
+            gameState.isComplete = false
+
+            setupBackground()
+            setupBulbs()
+            setupPlushFrogEyesClosedBlinkOverlay()
+            setupLEDKeyboardColorShiftOverlay()
+            setupCursorBlinkOverlay()
+            setupFindableRingOverlay()
+            setupFindableGumOverlay()
+            setupExtraStringLightBulbs()
+            setupCoffeeSteam()
+            if showDebugGrid, childNode(withName: "debugGrid") == nil {
+                let grid = SKNode()
+                grid.name = "debugGrid"
+                grid.zPosition = debugGridZPosition
+                grid.isUserInteractionEnabled = false
+                addChild(grid)
+                debugGridNode = grid
+            }
+            if worldNode.parent == nil {
+                addChild(worldNode)
+            }
+            layoutForSize()
+            setupDustParticles()
+        } else {
+            // A second `didMove` on the same scene (SpriteView lifecycle) can arrive with the final bounds; without this, `didApplyCameraAnchorThisScene` stays true and only clamp runs, so a bad first-pass center survives.
+            if gameState.pendingCameraRestoreOnNextLayout == nil {
+                didApplyCameraAnchorThisScene = false
+            }
+            layoutForSize()
         }
-        addChild(worldNode)
-        layoutForSize()
-        setupDustParticles()
+
         attachGestures(to: view)
 
         // SpriteView may set scene size after didMove; refresh grid once bounds are known.
@@ -232,15 +253,33 @@ final class FirstScene: SKScene {
         }
 
         lastDebugFindsResetCount = gameState.debugLevelFindsResetCount
+
+        #if DEBUG
+        gameState.requestReloadLevelScene = { [weak self] in
+            self?.reloadDebugScene()
+        }
+        #endif
     }
 
     override func willMove(from view: SKView) {
         super.willMove(from: view)
+        #if DEBUG
+        gameState.requestReloadLevelScene = nil
+        #endif
         detachGestures(from: view)
     }
 
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
+        // When bounds change, only clamping would keep a center computed for the previous size. Re-anchor unless debug reload is restoring pan/zoom. (Orientation-only checks miss cases where `size` was stale vs the SwiftUI view until layout sync.)
+        if oldSize.width > 0, oldSize.height > 0,
+           gameState.pendingCameraRestoreOnNextLayout == nil {
+            let dw = abs(oldSize.width - size.width)
+            let dh = abs(oldSize.height - size.height)
+            if dw > 0.5 || dh > 0.5 {
+                didApplyCameraAnchorThisScene = false
+            }
+        }
         layoutForSize()
     }
 
@@ -263,6 +302,32 @@ final class FirstScene: SKScene {
 
     // MARK: Background
 
+    private func addToWorldIfNeeded(_ node: SKNode) {
+        guard node.parent == nil else { return }
+        worldNode.addChild(node)
+    }
+
+    private func addToBackgroundIfNeeded(_ node: SKNode) {
+        guard node.parent == nil else { return }
+        backgroundNode.addChild(node)
+    }
+
+    /// Normalized art (u, v) → local position on `bg` (anchor 0.5, 0.5). All room overlays use this space, not scene size.
+    private func positionOnBackground(
+        bg: SKSpriteNode,
+        u: CGFloat,
+        v: CGFloat,
+        nudgeX: CGFloat,
+        nudgeY: CGFloat
+    ) -> CGPoint {
+        let sourceX = computerSetupSourcePixelWidth * u
+        let sourceY = computerSetupSourcePixelHeight * v
+        return CGPoint(
+            x: (sourceX / computerSetupSourcePixelWidth - 0.5) * bg.size.width + nudgeX,
+            y: (sourceY / computerSetupSourcePixelHeight - 0.5) * bg.size.height + nudgeY
+        )
+    }
+
     /// Aspect-fill: covers `size` while preserving texture aspect ratio.
     private func backgroundDisplaySize(texturePixelSize: CGSize) -> CGSize {
         guard texturePixelSize.width > 0,
@@ -282,6 +347,11 @@ final class FirstScene: SKScene {
     }
 
     private func setupBackground() {
+        if let existing = worldNode.childNode(withName: "background") as? SKSpriteNode {
+            backgroundNode = existing
+            return
+        }
+
         let bg = SKSpriteNode(imageNamed: "ComputerSetup")
         bg.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         bg.zPosition = 0
@@ -290,46 +360,58 @@ final class FirstScene: SKScene {
         guard let texture = bg.texture,
               texture.size().width > 0,
               texture.size().height > 0 else {
-            worldNode.addChild(bg)
+            addToWorldIfNeeded(bg)
             backgroundNode = bg
             return
         }
 
         bg.size = backgroundDisplaySize(texturePixelSize: texture.size())
 
-        worldNode.addChild(bg)
+        addToWorldIfNeeded(bg)
         backgroundNode = bg
     }
 
     private func setupBulbs() {
-        let yellow = SKSpriteNode(imageNamed: "BulbYellowOn")
-        yellow.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        yellow.zPosition = 1
-        yellow.name = "bulbYellow"
-        worldNode.addChild(yellow)
-        bulbNode = yellow
-        addBulbBlinkLoop(to: yellow, phaseDelay: randomBulbBlinkPhaseDelay())
+        if let yellow = backgroundNode.childNode(withName: "bulbYellow") as? SKSpriteNode {
+            bulbNode = yellow
+        } else {
+            let yellow = SKSpriteNode(imageNamed: "BulbYellowOn")
+            yellow.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+            yellow.zPosition = 1
+            yellow.name = "bulbYellow"
+            addToBackgroundIfNeeded(yellow)
+            bulbNode = yellow
+            addBulbBlinkLoop(to: yellow, phaseDelay: randomBulbBlinkPhaseDelay())
+        }
 
-        let blue = SKSpriteNode(imageNamed: "BulbBlueOn")
-        blue.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        blue.zPosition = 1
-        blue.name = "bulbBlue"
-        blue.size = CGSize(
-            width: bulbSpriteWidth * bulbDisplaySizeScale,
-            height: bulbSpriteHeight * bulbDisplaySizeScale
-        )
-        worldNode.addChild(blue)
-        blueBulbNode = blue
-        addBulbBlinkLoop(to: blue, phaseDelay: randomBulbBlinkPhaseDelay())
+        if let blue = backgroundNode.childNode(withName: "bulbBlue") as? SKSpriteNode {
+            blueBulbNode = blue
+        } else {
+            let blue = SKSpriteNode(imageNamed: "BulbBlueOn")
+            blue.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+            blue.zPosition = 1
+            blue.name = "bulbBlue"
+            blue.size = CGSize(
+                width: bulbSpriteWidth * bulbDisplaySizeScale,
+                height: bulbSpriteHeight * bulbDisplaySizeScale
+            )
+            addToBackgroundIfNeeded(blue)
+            blueBulbNode = blue
+            addBulbBlinkLoop(to: blue, phaseDelay: randomBulbBlinkPhaseDelay())
+        }
     }
 
     private func setupPlushFrogEyesClosedBlinkOverlay() {
+        if let existing = backgroundNode.childNode(withName: "plushFrogEyesClosedBlink") as? SKSpriteNode {
+            plushFrogEyesClosedNode = existing
+            return
+        }
         let node = SKSpriteNode(imageNamed: plushFrogEyesClosedAssetName)
         node.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         node.zPosition = 1
         node.alpha = 0
         node.name = "plushFrogEyesClosedBlink"
-        worldNode.addChild(node)
+        addToBackgroundIfNeeded(node)
         plushFrogEyesClosedNode = node
         addPlushFrogBlinkLoop(to: node)
     }
@@ -354,12 +436,16 @@ final class FirstScene: SKScene {
     }
 
     private func setupLEDKeyboardColorShiftOverlay() {
+        if let existing = backgroundNode.childNode(withName: "ledKeyboardColorShift") as? SKSpriteNode {
+            ledKeyboardColorShiftNode = existing
+            return
+        }
         let node = SKSpriteNode(imageNamed: ledKeyboardColorShiftAssetName)
         node.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         node.zPosition = 1
         node.alpha = 0
         node.name = "ledKeyboardColorShift"
-        worldNode.addChild(node)
+        addToBackgroundIfNeeded(node)
         ledKeyboardColorShiftNode = node
         addLEDKeyboardColorShiftShimmerLoop(to: node)
     }
@@ -395,12 +481,16 @@ final class FirstScene: SKScene {
     }
 
     private func setupCursorBlinkOverlay() {
+        if let existing = backgroundNode.childNode(withName: "cursorBlink") as? SKSpriteNode {
+            cursorBlinkNode = existing
+            return
+        }
         let node = SKSpriteNode(imageNamed: cursorBlinkAssetName)
         node.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         node.zPosition = 1
         node.alpha = 1
         node.name = "cursorBlink"
-        worldNode.addChild(node)
+        addToBackgroundIfNeeded(node)
         cursorBlinkNode = node
         addCursorBlinkLoop(to: node)
     }
@@ -422,6 +512,10 @@ final class FirstScene: SKScene {
     }
 
     private func setupFindableRingOverlay() {
+        if let existing = backgroundNode.childNode(withName: findableRingNodeName) as? SKSpriteNode {
+            findableRingNode = existing
+            return
+        }
         let node = SKSpriteNode(imageNamed: findableRingAssetName)
         node.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         node.zPosition = 1
@@ -430,11 +524,15 @@ final class FirstScene: SKScene {
         let data = NSMutableDictionary()
         data["id"] = findableRingUserDataId
         node.userData = data
-        worldNode.addChild(node)
+        addToBackgroundIfNeeded(node)
         findableRingNode = node
     }
 
     private func setupFindableGumOverlay() {
+        if let existing = backgroundNode.childNode(withName: findableGumNodeName) as? SKSpriteNode {
+            findableGumNode = existing
+            return
+        }
         let node = SKSpriteNode(imageNamed: findableGumAssetName)
         node.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         node.zPosition = 1
@@ -443,7 +541,7 @@ final class FirstScene: SKScene {
         let data = NSMutableDictionary()
         data["id"] = findableGumUserDataId
         node.userData = data
-        worldNode.addChild(node)
+        addToBackgroundIfNeeded(node)
         findableGumNode = node
     }
 
@@ -492,6 +590,18 @@ final class FirstScene: SKScene {
         }
         #endif
     }
+
+    #if DEBUG
+    /// Isolated debug control: rebuilds this level’s scene without restarting the simulator (`GameState` is preserved; `didMove` reinitializes level flags).
+    private func reloadDebugScene() {
+        guard let view = self.view else { return }
+        gameState.pendingCameraRestoreOnNextLayout = (worldNode.position, zoomScale)
+        let newScene = FirstScene(gameState: gameState)
+        newScene.size = size
+        newScene.scaleMode = scaleMode
+        view.presentScene(newScene, transition: SKTransition.fade(withDuration: 0.15))
+    }
+    #endif
 
     /// Ring stays visually hidden: no alpha / fade — only a brief uniform scale pulse (aspect unchanged).
     private func runFindableRingCorrectFeedback(on node: SKSpriteNode) {
@@ -542,13 +652,31 @@ final class FirstScene: SKScene {
 
     private func setupExtraStringLightBulbs() {
         extraStringLightBulbNodes.removeAll()
+        var recovered: [SKSpriteNode] = []
+        for spec in extraStringLightBulbSpecs {
+            guard let n = backgroundNode.childNode(withName: "extraStringLight_\(spec.asset)") as? SKSpriteNode else {
+                recovered = []
+                break
+            }
+            recovered.append(n)
+        }
+        if recovered.count == extraStringLightBulbSpecs.count {
+            extraStringLightBulbNodes = recovered
+            return
+        }
+
+        for spec in extraStringLightBulbSpecs {
+            backgroundNode.childNode(withName: "extraStringLight_\(spec.asset)")?.removeFromParent()
+        }
+        extraStringLightBulbNodes.removeAll()
+
         for spec in extraStringLightBulbSpecs {
             let node = SKSpriteNode(imageNamed: spec.asset)
             node.anchorPoint = CGPoint(x: 0.5, y: 0.5)
             node.zPosition = 1
             node.name = "extraStringLight_\(spec.asset)"
             node.size = extraStringLightDisplaySize(for: node)
-            worldNode.addChild(node)
+            addToBackgroundIfNeeded(node)
             extraStringLightBulbNodes.append(node)
             addBulbBlinkLoop(to: node, phaseDelay: randomBulbBlinkPhaseDelay())
         }
@@ -567,10 +695,29 @@ final class FirstScene: SKScene {
     // MARK: Coffee steam
 
     private func setupCoffeeSteam() {
+        if let anchor = backgroundNode.childNode(withName: "coffeeSteamAnchor") {
+            var wisps: [SKSpriteNode] = []
+            for i in 0..<coffeeSteamWispCount {
+                guard let w = anchor.childNode(withName: "coffeeSteamWisp_\(i)") as? SKSpriteNode else {
+                    wisps = []
+                    break
+                }
+                wisps.append(w)
+            }
+            if wisps.count == coffeeSteamWispCount {
+                coffeeSteamAnchorNode = anchor
+                coffeeSteamWisps = wisps
+                return
+            }
+        }
+
+        backgroundNode.childNode(withName: "coffeeSteamAnchor")?.removeFromParent()
+        coffeeSteamWisps.removeAll()
+
         let anchor = SKNode()
         anchor.name = "coffeeSteamAnchor"
         anchor.zPosition = 2
-        worldNode.addChild(anchor)
+        addToBackgroundIfNeeded(anchor)
         coffeeSteamAnchorNode = anchor
 
         for i in 0..<coffeeSteamWispCount {
@@ -582,7 +729,9 @@ final class FirstScene: SKScene {
                 x: CGFloat.random(in: -8...8),
                 y: CGFloat.random(in: -4...4)
             )
-            anchor.addChild(wisp)
+            if wisp.parent == nil {
+                anchor.addChild(wisp)
+            }
             coffeeSteamWisps.append(wisp)
 
             let stagger = Double(i) * 0.55 + Double.random(in: 0...0.35)
@@ -646,6 +795,7 @@ final class FirstScene: SKScene {
     // MARK: Gestures
 
     private func attachGestures(to view: SKView) {
+        detachGestures(from: view)
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
         pinch.delegate = self
         pinch.cancelsTouchesInView = false
@@ -713,6 +863,30 @@ final class FirstScene: SKScene {
 
     // MARK: Zoom / clamp
 
+    private func applyCameraLayoutForCurrentSize() {
+        if let pending = gameState.pendingCameraRestoreOnNextLayout {
+            gameState.pendingCameraRestoreOnNextLayout = nil
+            zoomScale = pending.zoom.clamped(to: minZoom...maxZoom)
+            worldNode.setScale(zoomScale)
+            worldNode.position = pending.position
+            clampWorldPosition()
+            didApplyCameraAnchorThisScene = true
+            return
+        }
+
+        if !didApplyCameraAnchorThisScene {
+            worldNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
+            zoomScale = zoomScale.clamped(to: minZoom...maxZoom)
+            worldNode.setScale(zoomScale)
+            clampWorldPosition()
+            didApplyCameraAnchorThisScene = true
+        } else {
+            zoomScale = zoomScale.clamped(to: minZoom...maxZoom)
+            worldNode.setScale(zoomScale)
+            clampWorldPosition()
+        }
+    }
+
     private func applyZoom(_ newScale: CGFloat, fixingScenePoint anchorScene: CGPoint) {
         let oldScale = zoomScale
         guard oldScale > 0 else { return }
@@ -765,16 +939,8 @@ final class FirstScene: SKScene {
 
         bg.position = .zero
 
-        func positionOnBackground(u: CGFloat, v: CGFloat, nudgeX: CGFloat, nudgeY: CGFloat) -> CGPoint {
-            let sourceX = computerSetupSourcePixelWidth * u
-            let sourceY = computerSetupSourcePixelHeight * v
-            return CGPoint(
-                x: (sourceX / computerSetupSourcePixelWidth - 0.5) * bg.size.width + nudgeX,
-                y: (sourceY / computerSetupSourcePixelHeight - 0.5) * bg.size.height + nudgeY
-            )
-        }
-
         bulbNode.position = positionOnBackground(
+            bg: bg,
             u: bulbNormalizedU,
             v: bulbNormalizedV,
             nudgeX: bulbPositionNudgeX,
@@ -786,6 +952,7 @@ final class FirstScene: SKScene {
         )
 
         blueBulbNode.position = positionOnBackground(
+            bg: bg,
             u: blueBulbNormalizedU,
             v: blueBulbNormalizedV,
             nudgeX: 0,
@@ -797,6 +964,7 @@ final class FirstScene: SKScene {
         )
 
         plushFrogEyesClosedNode.position = positionOnBackground(
+            bg: bg,
             u: plushFrogEyesClosedNormalizedU,
             v: plushFrogEyesClosedNormalizedV,
             nudgeX: 0,
@@ -809,6 +977,7 @@ final class FirstScene: SKScene {
         )
 
         ledKeyboardColorShiftNode.position = positionOnBackground(
+            bg: bg,
             u: ledKeyboardColorShiftNormalizedU,
             v: ledKeyboardColorShiftNormalizedV,
             nudgeX: ledKeyboardColorShiftNudgeX,
@@ -826,6 +995,7 @@ final class FirstScene: SKScene {
         )
 
         cursorBlinkNode.position = positionOnBackground(
+            bg: bg,
             u: cursorBlinkNormalizedU,
             v: cursorBlinkNormalizedV,
             nudgeX: 0,
@@ -838,6 +1008,7 @@ final class FirstScene: SKScene {
         )
 
         findableRingNode.position = positionOnBackground(
+            bg: bg,
             u: findableRingNormalizedU,
             v: findableRingNormalizedV,
             nudgeX: findableRingNudgeX,
@@ -850,10 +1021,11 @@ final class FirstScene: SKScene {
         )
 
         findableGumNode.position = positionOnBackground(
+            bg: bg,
             u: findableGumNormalizedU,
             v: findableGumNormalizedV,
-            nudgeX: 0,
-            nudgeY: 0
+            nudgeX: findableGumNudgeX,
+            nudgeY: findableGumNudgeY
         )
         findableGumNode.size = overlaySpriteDisplaySize(
             for: findableGumNode,
@@ -862,6 +1034,7 @@ final class FirstScene: SKScene {
         )
 
         coffeeSteamAnchorNode.position = positionOnBackground(
+            bg: bg,
             u: coffeeSteamNormalizedU,
             v: coffeeSteamNormalizedV,
             nudgeX: 0,
@@ -877,10 +1050,7 @@ final class FirstScene: SKScene {
             }
         }
 
-        worldNode.position = CGPoint(x: size.width / 2, y: size.height / 2)
-        zoomScale = zoomScale.clamped(to: minZoom...maxZoom)
-        worldNode.setScale(zoomScale)
-        clampWorldPosition()
+        applyCameraLayoutForCurrentSize()
 
         layoutExtraStringLightBulbs()
 
@@ -896,16 +1066,16 @@ final class FirstScene: SKScene {
     }
 
     private func layoutExtraStringLightBulbs() {
-        guard extraStringLightBulbNodes.count == extraStringLightBulbSpecs.count else { return }
-        let z = worldNode.xScale
-        guard z != 0 else { return }
+        guard extraStringLightBulbNodes.count == extraStringLightBulbSpecs.count,
+              let bg = backgroundNode else { return }
         for i in extraStringLightBulbSpecs.indices {
             let spec = extraStringLightBulbSpecs[i]
-            let sceneX = size.width * spec.u
-            let sceneY = size.height * spec.v
-            extraStringLightBulbNodes[i].position = CGPoint(
-                x: (sceneX - worldNode.position.x) / z + extraStringLightBulbNudgeX + spec.dx,
-                y: (sceneY - worldNode.position.y) / z + extraStringLightBulbNudgeY + spec.dy
+            extraStringLightBulbNodes[i].position = positionOnBackground(
+                bg: bg,
+                u: spec.u,
+                v: spec.v,
+                nudgeX: extraStringLightBulbNudgeX + spec.dx,
+                nudgeY: extraStringLightBulbNudgeY + spec.dy
             )
             extraStringLightBulbNodes[i].size = extraStringLightDisplaySize(for: extraStringLightBulbNodes[i])
         }
@@ -1002,14 +1172,15 @@ final class FirstScene: SKScene {
     // MARK: Tap-to-find (gameplay interaction — stays in SpriteKit)
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard !gameState.isComplete, let touch = touches.first else { return }
+        guard let touch = touches.first else { return }
+        let p = touch.location(in: self)
+
+        guard !gameState.isComplete else { return }
 
         guard let bg = backgroundNode,
               let texture = bg.texture,
               texture.size().width > 0,
               texture.size().height > 0 else { return }
-
-        let p = touch.location(in: self)
 
         if let ringIdx = findableRingLevelIndex,
            nodes(at: p).contains(where: { $0.name == findableRingNodeName }) {
@@ -1169,6 +1340,7 @@ final class FirstScene: SKScene {
     }
 
     private func setupDustParticles() {
+        guard dustEmitters.isEmpty else { return }
         guard size.width > 0, size.height > 0 else { return }
 
         struct Layer {

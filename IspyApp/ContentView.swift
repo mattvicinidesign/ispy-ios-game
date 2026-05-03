@@ -1,5 +1,52 @@
 import SwiftUI
 import SpriteKit
+import UIKit
+
+// MARK: - SKView host (rotation-safe scene size)
+
+/// `SpriteView` often leaves `SKScene.size` out of sync with the real drawable bounds after rotation, so aspect-fill layout and UV-placed overlays drift. Drive `scene.size` from `SKView.layoutSubviews` instead.
+private final class BoundsSyncSKView: SKView {
+    var onLayoutBounds: ((CGSize) -> Void)?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let s = bounds.size
+        guard s.width > 0.5, s.height > 0.5 else { return }
+        onLayoutBounds?(s)
+    }
+}
+
+private struct SceneHostView: UIViewRepresentable {
+    let scene: SKScene
+
+    func makeUIView(context: Context) -> BoundsSyncSKView {
+        let v = BoundsSyncSKView()
+        v.ignoresSiblingOrder = true
+        v.presentScene(scene)
+        return v
+    }
+
+    func updateUIView(_ uiView: BoundsSyncSKView, context: Context) {
+        uiView.onLayoutBounds = { newSize in
+            guard newSize.width > 0.5, newSize.height > 0.5 else { return }
+            let dw = abs(scene.size.width - newSize.width)
+            let dh = abs(scene.size.height - newSize.height)
+            guard dw > 0.25 || dh > 0.25 else { return }
+            scene.size = newSize
+        }
+        if uiView.scene !== scene {
+            uiView.presentScene(scene)
+        }
+        let s = uiView.bounds.size
+        if s.width > 0.5, s.height > 0.5 {
+            let dw = abs(scene.size.width - s.width)
+            let dh = abs(scene.size.height - s.height)
+            if dw > 0.25 || dh > 0.25 {
+                scene.size = s
+            }
+        }
+    }
+}
 
 // MARK: - Layout scaling
 
@@ -83,7 +130,13 @@ final class GameState {
         hintTargetIndex = nil
         debugLevelFindsResetCount += 1
     }
+
+    /// Set by `FirstScene` while the level is shown; top HUD calls this to reload without restarting the simulator.
+    var requestReloadLevelScene: (() -> Void)?
     #endif
+
+    /// Set immediately before replacing the level scene (debug reload); consumed once on the next scene’s camera layout to keep pan/zoom.
+    var pendingCameraRestoreOnNextLayout: (position: CGPoint, zoom: CGFloat)?
 }
 
 enum ActiveScreen {
@@ -109,7 +162,7 @@ struct ContentView: View {
                 .ignoresSafeArea()
 
             if let scene = currentScene {
-                SpriteView(scene: scene)
+                SceneHostView(scene: scene)
                     .ignoresSafeArea()
                     .id(sceneID)
                     .transition(.opacity)
@@ -140,6 +193,7 @@ struct ContentView: View {
         let scene: SKScene
         switch state.activeScreen {
         case .menu:
+            state.pendingCameraRestoreOnNextLayout = nil
             scene = MenuScene()
         case .level:
             scene = FirstScene(gameState: state)
@@ -257,6 +311,19 @@ private struct LevelOverlay: View {
             #endif
             Spacer()
             CoinPill(coins: state.coins)
+            #if DEBUG
+            Button {
+                state.requestReloadLevelScene?()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: scale.value(18), weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(scale.value(10))
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: scale.value(10)))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Reload scene")
+            #endif
             SettingsButton(state: state)
         }
         .padding(.horizontal, scale.value(16))
